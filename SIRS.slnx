@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="CURD/CURD.csproj" Id="5de4d15b-c6cf-4ab9-8ffe-7dd4fe2e6636" />
+  <Project Path="Database/Database.csproj" />
+  <Project Path="SIRS/SIRS.csproj" />
+</Solution>
