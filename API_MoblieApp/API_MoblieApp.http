@@ -1,0 +1,6 @@
+@API_MoblieApp_HostAddress = http://localhost:5053
+
+GET {{API_MoblieApp_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -1,0 +1,96 @@
+﻿
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Incident Reporting System - Login</title>
+    <link rel="stylesheet" href="~/css/login.css">
+</head>
+<body>
+    <div class="login-container">
+        <!-- Header -->
+        <div class="login-header">
+            <div class="logo-icon">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+            </div>
+            <div class="header-title">
+                Smart Incident Reporting<br>System
+            </div>
+        </div>
+
+        <!-- Content -->
+        <div class="login-content">
+            <div class="page-title">Authorized Personnel Login</div>
+            <div class="page-subtitle">Sign in to access your dashboard.</div>
+
+            <form id="loginForm" asp-action="Login" asp-controller="Account" method="POST">
+                @Html.AntiForgeryToken()
+
+                <!-- Email Field -->
+                <div class="form-group">
+                    <label for="email" class="form-label">Email Address</label>
+                    <div class="input-wrapper">
+                        <svg class="input-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                        <input type="email"
+                               id="email"
+                               name="Email"
+                               class="form-input"
+                               placeholder="Enter your email"
+                               required />
+                    </div>
+                </div>
+
+                <!-- Password Field -->
+                <div class="form-group">
+                    <label for="password" class="form-label">Password</label>
+                    <div class="input-wrapper">
+                        <svg class="input-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                        <input type="password"
+                               id="password"
+                               name="Password"
+                               class="form-input"
+                               placeholder="Enter your password"
+                               required />
+                        <button type="button" class="password-toggle" id="togglePasswordBtn">
+                            <svg id="eyeIcon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Forgot Password -->
+                <div class="forgot-password">
+                    <a asp-action="ForgotPassword" asp-controller="Account">Forgot Password?</a>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" class="login-button">Secure Login</button>
+            </form>
+
+            <!-- Warning Box -->
+            <div class="warning-box">
+                <p class="warning-text">
+                    Unauthorized access is strictly prohibited. All activities are monitored.
+                </p>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="login-footer">
+            <span class="footer-text">© 2024 Incident Reporting Authority</span>
+            <a asp-action="Index" asp-controller="Support" class="footer-link">Help & Support</a>
+        </div>
+    </div>
+
+    <script src="~/js/login.js"></script>
+</body>
+</html>

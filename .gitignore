@@ -480,3 +480,12 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+# إخفاء ملفات البيانات فقط
+*.db
+*.db-shm
+*.db-wal
+*.mdf
+*.ldf
+
+# إخفاء ملفات الإعدادات
+*.json
