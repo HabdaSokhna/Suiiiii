@@ -4,13 +4,14 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using SIRS_API.DTO.Notification;
 using SIRS_API.DTO.User;
 using SIRS_API.Services;
 using System.Security.Claims;
 
 namespace SIRS_API.Controllers
 {
-    [AllowAnonymous]
+    [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class UserController : ControllerBase
@@ -137,11 +138,18 @@ namespace SIRS_API.Controllers
         /// <response code="400">Bad Request: File is missing or has an invalid extension.</response>
         /// <response code="401">Unauthorized: Missing or invalid authentication token.</response>
         /// <response code="500">Internal Server Error: Unexpected error during file saving or database update.</response>
+        [Authorize] // تأكد أن الكنترولر أو الميثود محمية
         [HttpPost("UploadPhoto")]
         public async Task<IActionResult> UploadPhoto(IFormFile file)
         {
-            // 1. التحقق من وجود الملف
-            if (file == null || file.Length == 0) return BadRequest(new { message = "الصورة غير صالحة." });
+            // 1. التحقق من وجود الملف ومن نوعه (أمان إضافي)
+            if (file == null || file.Length == 0)
+                return BadRequest(new { message = "الصورة غير صالحة." });
+
+            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png" };
+            var extension = Path.GetExtension(file.FileName).ToLower();
+            if (!allowedExtensions.Contains(extension))
+                return BadRequest(new { message = "امتداد الملف غير مسموح به. يرجى رفع صور فقط." });
 
             // 2. التحقق من هوية المستخدم
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -150,17 +158,16 @@ namespace SIRS_API.Controllers
             var user = await _userManager.FindByIdAsync(userId);
             if (user == null) return NotFound(new { message = "المستخدم غير موجود." });
 
-            // 3. معالجة وحفظ الملف
-            var extension = Path.GetExtension(file.FileName).ToLower();
+            // 3. معالجة وحفظ الملف باستخدام Path.Combine الصحيح
             var fileName = $"{Guid.NewGuid()}{extension}";
-            var folderPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot/Uploads/Profiles");
+            // استخدم Path.Combine مع WebRootPath لضمان الوصول لمجلد wwwroot بشكل صحيح
+            var folderPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "Uploads", "Profiles");
 
-            // التأكد من أن المجلد موجود بالفعل
             if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
 
-            var path = Path.Combine(folderPath, fileName);
+            var filePath = Path.Combine(folderPath, fileName);
 
-            using (var stream = new FileStream(path, FileMode.Create))
+            using (var stream = new FileStream(filePath, FileMode.Create))
             {
                 await file.CopyToAsync(stream);
             }
@@ -170,20 +177,31 @@ namespace SIRS_API.Controllers
             var updateResult = await _userManager.UpdateAsync(user);
             if (!updateResult.Succeeded) return BadRequest(updateResult.Errors);
 
-            // 5. [NOTIFICATION] إرسال الإشعار وتجهيزه للرد
-            object? notificationResponse = null;
+            // 5. [NOTIFICATION] إصلاح نوع الإشعار وإرجاع القيمة
+            NotificationResponse_Dto? notificationResponse = null;
             var citizen = await _context.TbCitizen.FirstOrDefaultAsync(c => c.ApplicationUserId == userId);
 
             if (citizen != null)
             {
-                await FillNotificationTable(citizen.Citizen_ID, "ChangeEmail");
+                // تم تغيير "ChangeEmail" إلى "UploadPhoto" ليكون منطقياً
+                await FillNotificationTable(citizen.Citizen_ID, "UploadPhoto");
+
+                // تجهيز الرد للإشعار (اختياري حسب تصميم الـ DTO عندك)
+                notificationResponse = new NotificationResponse_Dto
+                {
+                    Title = "الملف الشخصي",
+                    Message = "تم تحديث صورتك الشخصية بنجاح.",
+                    CreatedAt = DateTime.UtcNow
+                };
             }
 
-            // 6. الرد النهائي
+            // 6. الرد النهائي مع إضافة Scheme/Host للرابط ليفتح الموبايل الصورة مباشرة
+            var fullPath = $"{Request.Scheme}://{Request.Host}{user.ProfilePhotoPath}";
+
             return Ok(new
             {
                 success = true,
-                photoPath = user.ProfilePhotoPath,
+                photoPath = fullPath,
                 message = "تم رفع الصورة وتحديث الملف الشخصي.",
                 notification = notificationResponse
             });

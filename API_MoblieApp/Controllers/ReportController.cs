@@ -48,6 +48,7 @@ namespace SIRS_API.Controllers
         /// <param name="model">Form-data containing Title, Description, Location, Category, and Photo file.</param>
         /// <returns>A 201 Created response with the generated Report ID and the route to access it.</returns>
         [HttpPost("CreateReport")]
+        
         public async Task<IActionResult> CreateReport([FromForm] ReportCreate_Dto model)
         {
             if (!ModelState.IsValid)
@@ -55,79 +56,83 @@ namespace SIRS_API.Controllers
 
             try
             {
-                // 1. استخراج الهوية من التوكن
-                var userEmail = User.FindFirstValue(JwtRegisteredClaimNames.Email)
-                                ?? User.FindFirstValue(ClaimTypes.Email);
-
-                if (string.IsNullOrEmpty(userEmail))
-                    return Unauthorized(new { message = "فشل التعرف على المستخدم من التوكن" });
-
-                // 2. جلب ملف المواطن
-                var citizen = await _citizenRepo.GetByEmailAsync(userEmail);
-                if (citizen == null)
-                    return NotFound(new { message = "لم يتم العثور على ملف مواطن لهذا الحساب" });
-
-                // --- [بداية منطق الـ AI] ---
-                PredictionResult_Dto aiResult = new PredictionResult_Dto(); // قيم افتراضية
+                byte[] imageBytes = Array.Empty<byte>();
+                // 1. القيمة الافتراضية لازم تكون واضحة
+                PredictionResult_Dto aiResult = new PredictionResult_Dto { Tag = "General", Confidence = 0.0f };
                 string? photoPath = null;
 
+                var userEmail = User.FindFirstValue(JwtRegisteredClaimNames.Email) ?? User.FindFirstValue(ClaimTypes.Email);
+                if (string.IsNullOrEmpty(userEmail))
+                    return Unauthorized(new { message = "فشل التعرف على المستخدم" });
+
+                var citizen = await _citizenRepo.GetByEmailAsync(userEmail);
+                if (citizen == null) return NotFound(new { message = "المواطن غير موجود" });
+
+                // --- [تحليل الصورة - المحرك الأساسي] ---
                 if (model.Photo != null && model.Photo.Length > 0)
                 {
-                    // أ. تحويل الصورة لـ Bytes عشان الـ AI يحللها
-                    using var ms = new MemoryStream();
-                    await model.Photo.CopyToAsync(ms);
-                    byte[] imageBytes = ms.ToArray();
+                    using (var ms = new MemoryStream())
+                    {
+                        await model.Photo.CopyToAsync(ms);
+                        imageBytes = ms.ToArray();
+                    }
 
-                    // ب. استدعاء خدمة الـ YOLO لتحليل الصورة
-                    aiResult = _yoloService.AnalyzeImage(imageBytes);
-
-                    // ج. حفظ الصورة فعلياً في السيرفر (بعد التحليل)
+                    if (imageBytes.Length > 0)
+                    {
+                        // تنفيذ الـ AI
+                        aiResult = _yoloService.AnalyzeImage(imageBytes);
+                    }
                     photoPath = await SavePhotoAsync(model.Photo);
                 }
-                // --- [نهاية منطق الـ AI] ---
 
-                // 4. إنشاء كيان البلاغ (بالبيانات المطعمة من الـ AI)
+                // 2. تأكيد القيم - لو الـ AI طلع نتيجة، اجبرها تدخل القاعدة
+                var finalCategory = (aiResult.Confidence > 0) ? aiResult.Tag : (model.Category ?? "General");
+                var finalConfidence = aiResult.Confidence;
+
                 var report = new Report
                 {
                     Report_Description = $"Title: {model.Title}\nDescription: {model.Description}",
                     Report_GeoLocation = model.Location,
-
-                    // لو المستخدم مبعتش تصنيف، ناخد تصنيف الـ AI
-                    Report_Category = string.IsNullOrEmpty(model.Category) || model.Category == "string"
-                                       ? aiResult.Tag
-                                       : model.Category,
-
+                    Report_Category = finalCategory, // القيمة اللي الـ AI حددها
                     PhotoPath = photoPath,
-                    Report_Submit = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow,
+                    Report_Submit = DateTime.UtcNow.AddHours(2),
+                    CreatedAt = DateTime.UtcNow.AddHours(2),
                     IsDeleted = false,
                     Citizen_ID = citizen.Citizen_ID,
-
-                    // تخزين نسبة تأكد الـ AI في الداتابيز
-                    Confidence_Score = aiResult.Confidence
+                    Confidence_Score = finalConfidence // النسبة الحقيقية
                 };
 
-                // 5. حفظ البلاغ في الداتابيز
                 var createdReport = await _reportRepo.CreateAsync(report);
+
+                // 3. تحديث جداول الإشعارات بالقيم الحقيقية
                 await FillNotificationTable(citizen.Citizen_ID, "CreateReport");
 
-                // 6. [NOTIFICATION] إرسال الإشعار وتخزين النتيجة (باستخدام التصنيف النهائي)
-                var notif = await SendNotificationAsync(
+                await SendNotificationAsync(
                     citizen.Citizen_ID,
                     "تم استلام بلاغك",
-                    $"نشكرك على تعاونك. تم تسجيل بلاغك بنجاح تحت تصنيف ({report.Report_Category}) وجاري المراجعة.",
+                    $"تم تسجيل بلاغك ({finalCategory}) بنسبة تأكد {finalConfidence:P0}.",
                     "report"
                 );
-            
-                // 7. الرد النهائي
+
+                // 4. الرد النهائي (القراءة من الكيان المحفوظ لضمان التطابق)
                 return CreatedAtRoute(
                     "GetReportById",
-                    new { id = createdReport.Report_ID }
+                    new { id = createdReport.Report_ID },
+                    new
+                    {
+                        message = "تم إنشاء البلاغ بنجاح",
+                        reportId = createdReport.Report_ID,
+                        // هنا بنرجع القيم اللي الـ AI طلعها فعلياً والسيستم خزنها
+                        aiTag = createdReport.Report_Category,
+                        confidence = createdReport.Confidence_Score,
+                        formattedConfidence = $"{(createdReport.Confidence_Score * 100):0.#}%",
+                        debugBytesLength = imageBytes.Length
+                    }
                 );
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = "خطأ داخلي في السيرفر", detail = ex.Message });
+                return StatusCode(500, new { message = "خطأ داخلي", detail = ex.Message });
             }
         }
 
@@ -242,7 +247,6 @@ namespace SIRS_API.Controllers
         /// Retrieves the full details of a specific report, including its audit trail (Handles).
         /// </summary>
         /// <param name="id">The unique identifier of the report.</param>
-        [ApiExplorerSettings(IgnoreApi = true)]
         [HttpGet("{id}", Name = "GetReportById")]
         public async Task<IActionResult> GetReportById(int id)
         {

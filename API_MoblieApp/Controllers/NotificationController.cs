@@ -1,6 +1,7 @@
 ﻿using Database;
 using Database.Domain;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SIRS_API.DTO.Notification;
@@ -95,7 +96,7 @@ namespace SIRS_API.Controllers
                 Title = title,
                 Message = message,
                 Type = type,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow.AddHours(3)
             };
 
             _context.TbNotification.Add(notification);

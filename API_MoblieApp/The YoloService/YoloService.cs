@@ -12,36 +12,44 @@ public class YoloService
     {
         // الترتيب الصفر هو smoke والواحد هو fire كما في تدريبك
         var labels = new[] { "smoke", "fire" };
-
-        // الآن سيعمل هذا السطر لأن الأسماء أصبحت input و output
         _predictor = YoloV8Predictor.Create(modelPath, labels);
     }
 
     public PredictionResult_Dto AnalyzeImage(byte[] imageBytes)
     {
-        using var image = Image.Load<Rgb24>(imageBytes);
+        // سطر تشخيصي ضروري: لو الرقم ده 0 يبقى العيب مش في الكود ده
+        System.Diagnostics.Debug.WriteLine($"[AI Debug] Bytes received: {imageBytes?.Length ?? 0}");
 
-        // تأكد من الحجم
-        image.Mutate(x => x.Resize(640, 640));
+        if (imageBytes == null || imageBytes.Length == 0)
+            return new PredictionResult_Dto { Tag = "No Data", Confidence = 0 };
 
-        var predictions = _predictor.Predict(image);
-
-        // سطر التشخيص (مهم جداً)
-        System.Diagnostics.Debug.WriteLine($"[AI Debug] Predictions Count: {predictions.Count()}");
-
-        foreach (var res in predictions)
+        try
         {
-            System.Diagnostics.Debug.WriteLine($"[AI Debug] Found: {res.Label.Name} | Score: {res.Score}");
+            using var image = Image.Load<Rgb24>(imageBytes);
+
+            // الكود القديم اللي كنت شغال بيه
+            image.Mutate(x => x.Resize(640, 640));
+
+            var predictions = _predictor.Predict(image);
+
+            // سطر التشخيص (مهم جداً)
+            System.Diagnostics.Debug.WriteLine($"[AI Debug] Predictions Count: {predictions.Count()}");
+
+            var best = predictions.OrderByDescending(p => p.Score).FirstOrDefault();
+
+            if (best == null) return new PredictionResult_Dto { Tag = "No Detection", Confidence = 0 };
+
+            return new PredictionResult_Dto
+            {
+                Tag = best.Label.Name,
+                Confidence = best.Score
+            };
         }
-
-        var best = predictions.OrderByDescending(p => p.Score).FirstOrDefault();
-
-        if (best == null) return new PredictionResult_Dto { Tag = "No Detection", Confidence = 0 };
-
-        return new PredictionResult_Dto
+        catch (Exception ex)
         {
-            Tag = best.Label.Name,
-            Confidence = best.Score
-        };
+            // عشان لو ضرب Pointer يقولك السبب بدل ما يوقع السيرفر
+            System.Diagnostics.Debug.WriteLine($"[AI Error] {ex.Message}");
+            return new PredictionResult_Dto { Tag = "Error", Confidence = 0 };
+        }
     }
 }
