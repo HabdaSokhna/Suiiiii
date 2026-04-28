@@ -1,5 +1,5 @@
 <Solution>
   <Project Path="API_MoblieApp/SIRS_API.csproj" Id="ba8a3232-5a85-4961-9dcc-d21373b6a0f5" />
+  <Project Path="BLL/BLL.csproj" Id="cef4fc7d-0569-4a6e-8183-0338a78c5169" />
   <Project Path="Database/Database.csproj" />
-  <Project Path="SIRS/SIRS_MVC.csproj" />
 </Solution>

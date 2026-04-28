@@ -9,34 +9,29 @@ namespace CURD
 {
     public interface ICitizenRepository
     {
-        // Create
         Task<Citizen> CreateAsync(Citizen citizen);
-
-        // Read
         Task<IEnumerable<Citizen>> GetAllAsync();
         Task<Citizen?> GetByIdAsync(int id);
         Task<Citizen?> GetByNationalIdAsync(string nationalId);
+
+        
         Task<Citizen?> GetByEmailAsync(string email);
+        Task<bool> EmailExistsAsync(string email);
 
-        // Update
         Task<Citizen> UpdateAsync(Citizen citizen);
-
-        // Delete (Soft Delete)
         Task<bool> SoftDeleteAsync(int id);
         Task<bool> RestoreAsync(int id);
 
-        // Helper Methods
         Task<bool> ExistsAsync(int id);
         Task<bool> NationalIdExistsAsync(string nationalId);
-        Task<bool> EmailExistsAsync(string email);
 
-        // Get with Relations
         Task<Citizen?> GetByIdWithPhonesAsync(int id);
         Task<Citizen?> GetByIdWithReportsAsync(int id);
         Task<Citizen?> GetByIdWithAllAsync(int id);
+
+        
+        Task<string?> GetTokenByIdAsync(int id);
     }
-
-
     public class CitizenRepository : ICitizenRepository
     {
         private readonly Ai_Reports_Context _context;
@@ -46,102 +41,106 @@ namespace CURD
             _context = context;
         }
 
-        public async Task<Citizen> CreateAsync(Citizen citizen)
-        {
-            citizen.CreatedAt = DateTime.Now;
-            citizen.IsDeleted = false;
-
-            _context.TbCitizen.Add(citizen);
-            await _context.SaveChangesAsync();
-
-            return citizen;
-        }
-        public async Task<IEnumerable<Citizen>> GetAllAsync()
-        {
-            return await _context.TbCitizen.ToListAsync();
-        }
-        public async Task<Citizen?> GetByIdAsync(int id)
-        {
-            return await _context.TbCitizen
-                .FirstOrDefaultAsync(c => c.Citizen_ID == id);
-        }
-        public async Task<Citizen?> GetByNationalIdAsync(string nationalId)
-        {
-            return await _context.TbCitizen
-                .FirstOrDefaultAsync(c => c.Citizen_National_Id == nationalId);
-        }
+        // البحث بالإيميل من خلال جدول الـ Identity
         public async Task<Citizen?> GetByEmailAsync(string email)
         {
             return await _context.TbCitizen
-                .FirstOrDefaultAsync(c => c.Citizen_Email == email);
+                .Include(c => c.User)
+                .FirstOrDefaultAsync(c => c.User.Email == email);
         }
+
+        // جلب التوكن من جدول الـ Identity
+        public async Task<string?> GetTokenByIdAsync(int id)
+        {
+            return await _context.TbCitizen
+                .Where(c => c.Citizen_ID == id)
+                .Select(c => c.User.DeviceToken) // التوكن دلوقتى جوه الـ User
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task<bool> EmailExistsAsync(string email)
+        {
+            return await _context.TbCitizen
+                .AnyAsync(c => c.User.Email == email);
+        }
+
+        // الـ Soft Delete دلوقتى بيقفل حساب الـ Identity
+        public async Task<bool> SoftDeleteAsync(int id)
+        {
+            var citizen = await _context.TbCitizen
+                .Include(c => c.User)
+                .FirstOrDefaultAsync(c => c.Citizen_ID == id);
+
+            if (citizen == null || citizen.User == null) return false;
+
+            citizen.User.IsDeleted = true; // الـ Flag بقى في الـ User
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> RestoreAsync(int id)
+        {
+            var citizen = await _context.TbCitizen
+                .IgnoreQueryFilters()
+                .Include(c => c.User)
+                .FirstOrDefaultAsync(c => c.Citizen_ID == id);
+
+            if (citizen == null || citizen.User == null) return false;
+
+            citizen.User.IsDeleted = false;
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        // باقي الميثودز التقليدية
+        public async Task<Citizen> CreateAsync(Citizen citizen)
+        {
+            _context.TbCitizen.Add(citizen);
+            await _context.SaveChangesAsync();
+            return citizen;
+        }
+
+        public async Task<IEnumerable<Citizen>> GetAllAsync()
+        {
+            return await _context.TbCitizen.Include(c => c.User).ToListAsync();
+        }
+
+        public async Task<Citizen?> GetByIdAsync(int id)
+        {
+            return await _context.TbCitizen
+                .Include(c => c.User)
+                .FirstOrDefaultAsync(c => c.Citizen_ID == id);
+        }
+
+        public async Task<Citizen?> GetByNationalIdAsync(string nationalId)
+        {
+            return await _context.TbCitizen
+                .Include(c => c.User)
+                .FirstOrDefaultAsync(c => c.Citizen_National_Id == nationalId);
+        }
+
         public async Task<Citizen> UpdateAsync(Citizen citizen)
         {
             _context.TbCitizen.Update(citizen);
             await _context.SaveChangesAsync();
-
             return citizen;
         }
-        public async Task<bool> SoftDeleteAsync(int id)
-        {
-            var citizen = await GetByIdAsync(id);
-            if (citizen == null) return false;
 
-            citizen.IsDeleted = true;
+        public async Task<bool> ExistsAsync(int id) => await _context.TbCitizen.AnyAsync(c => c.Citizen_ID == id);
 
-            await _context.SaveChangesAsync();
-            return true;
-        }
-        public async Task<bool> RestoreAsync(int id)
-        {
-            var citizen = await _context.TbCitizen
-                .IgnoreQueryFilters() 
-                .FirstOrDefaultAsync(c => c.Citizen_ID == id && c.IsDeleted);
+        public async Task<bool> NationalIdExistsAsync(string nationalId) =>
+            await _context.TbCitizen.AnyAsync(c => c.Citizen_National_Id == nationalId);
 
-            if (citizen == null) return false;
+        public async Task<Citizen?> GetByIdWithPhonesAsync(int id) =>
+            await _context.TbCitizen.Include(c => c.LstPhone).FirstOrDefaultAsync(c => c.Citizen_ID == id);
 
-            citizen.IsDeleted = false;
+        public async Task<Citizen?> GetByIdWithReportsAsync(int id) =>
+            await _context.TbCitizen.Include(c => c.LstReport).FirstOrDefaultAsync(c => c.Citizen_ID == id);
 
-            await _context.SaveChangesAsync();
-            return true;
-        }
-        public async Task<bool> ExistsAsync(int id)
-        {
-            return await _context.TbCitizen
-                .AnyAsync(c => c.Citizen_ID == id);
-        }
-        public async Task<bool> NationalIdExistsAsync(string nationalId)
-        {
-            return await _context.TbCitizen
-                .AnyAsync(c => c.Citizen_National_Id == nationalId);
-        }
-        public async Task<bool> EmailExistsAsync(string email)
-        {
-            return await _context.TbCitizen
-                .AnyAsync(c => c.Citizen_Email == email);
-        }
-
-        //Get By Relations
-        public async Task<Citizen?> GetByIdWithPhonesAsync(int id)
-        {
-            return await _context.TbCitizen
-                .Include(c => c.LstPhone)
-                .FirstOrDefaultAsync(c => c.Citizen_ID == id);
-        }
-
-        public async Task<Citizen?> GetByIdWithReportsAsync(int id)
-        {
-            return await _context.TbCitizen
-                .Include(c => c.LstReport)
-                .FirstOrDefaultAsync(c => c.Citizen_ID == id);
-        }
-
-        public async Task<Citizen?> GetByIdWithAllAsync(int id)
-        {
-            return await _context.TbCitizen
-                .Include(c => c.LstPhone)
-                .Include(c => c.LstReport)
-                .FirstOrDefaultAsync(c => c.Citizen_ID == id);
-        }
+        public async Task<Citizen?> GetByIdWithAllAsync(int id) =>
+            await _context.TbCitizen.Include(c => c.User).Include(c => c.LstPhone).Include(c => c.LstReport).FirstOrDefaultAsync(c => c.Citizen_ID == id);
     }
+
+
+
 }

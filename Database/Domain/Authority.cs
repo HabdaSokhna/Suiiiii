@@ -25,6 +25,9 @@ namespace Database
         [Required(ErrorMessage = "ادخل اسم قسم")]
         [StringLength(100, MinimumLength = 3, ErrorMessage = "الاسم يجب أن يكون بين 3 و 100 حرف")]
         public string Department_Name { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "يجب تحديد تخصص الجهة")]
+        public string Category { get; set; } = string.Empty;
         //RelationShip
 
         //One Authority Many AuthorityContacts

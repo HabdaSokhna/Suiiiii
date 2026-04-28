@@ -20,26 +20,19 @@ namespace Database
 
         public DateTime Report_Submit { get; set; } = DateTime.Now;
 
-        // ✅ nullable - الـ AI هيملاه
         public string? Report_Category { get; set; }
 
-        // ✅ nullable
-        public string? Report_PredictedCategory { get; set; }
-
-        // ✅ nullable
         public string? PhotoPath { get; set; }
 
-       
         [Range(0.0, 1.0, ErrorMessage = "نسبة الثقة يجب أن تكون بين 0 و 1")]
         public float Confidence_Score { get; set; }
 
+        public string AI_Category { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.Now;
-        public DateTime? UpdatedAt { get; set; }
-        public bool IsDeleted { get; set; } = false;
-
-        // ✅ nullable
-        public DateTime? AiTime { get; set; }
+        public int UpdatedStatus { get; set; } = 1;
+        public DateTime? Solved  { get; set; }
+        public bool IsDeleted { get; set; }
 
         //RelationShip
         public int Citizen_ID { get; set; }

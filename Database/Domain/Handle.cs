@@ -6,13 +6,15 @@ namespace Database
 {
     public class Handle
     {
-        #region Composite Primary Key
-        [Key, Column(Order = 0)]
+        [Key]
+        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+        public int Handle_ID { get; set; }
+
+        [Required]
         public int Report_ID { get; set; }
 
-        [Key, Column(Order = 1)]
+        [Required]
         public int Authority_ID { get; set; }
-        #endregion
 
         [Required]
         [StringLength(50)]

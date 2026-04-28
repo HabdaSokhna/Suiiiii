@@ -1,398 +1,138 @@
-﻿using Database;
-using Database.Domain;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using SIRS_API.DTO.Notification;
-using SIRS_API.DTO.User;
-using SIRS_API.Services;
+using BLL.DTO.User;
+using BLL.Managers.User;
 using System.Security.Claims;
+using System.Net.Mime;
 
-namespace SIRS_API.Controllers
+namespace BLL.Controllers
 {
+    /// <summary>
+    /// Handles citizen profile management, including security updates and status tracking.
+    /// </summary>
     [Authorize]
     [ApiController]
     [Route("api/[controller]")]
+    [Produces(MediaTypeNames.Application.Json)]
+    [ApiExplorerSettings(GroupName = "citizen")]
     public class UserController : ControllerBase
     {
-        private readonly UserManager<ApplicationUser> _userManager;
-        private readonly ITokenService _tokenService;
-        private readonly Ai_Reports_Context _context;
-        public UserController(UserManager<ApplicationUser> userManager, ITokenService tokenService, Ai_Reports_Context context)
+        private readonly IProfileManager _profileManager;
+        private readonly IWebHostEnvironment _env;
+
+        public UserController(IProfileManager profileManager, IWebHostEnvironment env)
         {
-            _userManager = userManager;
-            _tokenService = tokenService;
-            _context = context;
+            _profileManager = profileManager;
+            _env = env;
         }
+
         /// <summary>
-        /// Updates the authenticated user's email address.
+        /// Updates the email address for the authenticated user.
         /// </summary>
-        /// <remarks>
-        /// <b>Conditions:</b>
-        /// - The user must provide their current password for verification.
-        /// - The new email must be unique and not associated with another account.
-        /// - After a successful change, the user's Identity UserName is also updated to the new email.
-        /// </remarks>
-        /// <param name="model">Contains NewEmail and CurrentPassword.</param>
-        /// <response code="200">Success: Email updated successfully.</response>
-        /// <response code="400">Bad Request: Invalid password or email already in use.</response>
-        /// <response code="401">Unauthorized: Missing or invalid token.</response>
+        /// <param name="model">The new email and current password for verification.</param>
+        /// <returns>A status message indicating success.</returns>
+        /// <response code="200">Email updated successfully.</response>
+        /// <response code="400">Update failed (invalid password or email already in use).</response>
         [HttpPut("ChangeEmail")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> ChangeEmail([FromBody] ChangeEmail_Dto model)
         {
-            // 1. التحقق من هوية المستخدم
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+            if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            var user = await _userManager.FindByIdAsync(userId);
-            if (user == null || !await _userManager.CheckPasswordAsync(user, model.CurrentPassword))
-                return BadRequest(new { message = "كلمة المرور غير صحيحة." });
+            var result = await _profileManager.ChangeEmailAsync(GetUserId(), model);
 
-            // 2. تحديث البريد الإلكتروني
-            user.Email = model.NewEmail;
-            user.UserName = model.NewEmail;
-            var result = await _userManager.UpdateAsync(user);
+            if (!result)
+                return BadRequest(new { message = "Email update failed. Please verify your current password." });
 
-            if (!result.Succeeded) return BadRequest(result.Errors);
-
-            // 3. [NOTIFICATION]
-           
-            var citizen = await _context.TbCitizen.FirstOrDefaultAsync(c => c.ApplicationUserId == userId);
-
-            if (citizen != null)
-            {
-                await FillNotificationTable(citizen.Citizen_ID, "ChangeEmail");
-            }
-
-            // 4. الرد النهائي (التعديل الجوهري هنا لمنع الانفجار)
-            return Ok(new
-            {
-                success = true,
-                message = "تم تحديث البريد الإلكتروني بنجاح.",
-                
-            });
+            return Ok(new { success = true, message = "Email updated successfully." });
         }
+
         /// <summary>
-        /// Changes the password for the currently logged-in user.
+        /// Changes the password for the current account.
         /// </summary>
-        /// <remarks>
-        /// <b>Security Note:</b>
-        /// Upon success, the user's Security Stamp is updated, which invalidates all existing tokens to ensure security.
-        /// </remarks>
-        /// <param name="model">Contains CurrentPassword and NewPassword.</param>
-        /// <response code="200">Success: Password has been changed.</response>
-        /// <response code="400">Bad Request: Password requirements not met or incorrect current password.</response>
+        /// <param name="model">Current and new password details.</param>
+        /// <returns>A status message indicating success.</returns>
+        /// <response code="200">Password changed successfully.</response>
+        /// <response code="400">Password change failed due to invalid current password or complexity rules.</response>
         [HttpPost("ChangePassword")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePassword_Dto model)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            // 1. استخراج الهوية والتحقق من وجود المستخدم
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+            var result = await _profileManager.ChangePasswordAsync(GetUserId(), model);
 
-            var user = await _userManager.FindByIdAsync(userId);
-            if (user == null) return NotFound(new { message = "المستخدم غير موجود." });
+            if (!result)
+                return BadRequest(new { message = "Password change failed." });
 
-            // 2. تغيير كلمة المرور
-            var result = await _userManager.ChangePasswordAsync(user, model.CurrentPassword, model.NewPassword);
-            if (!result.Succeeded) return BadRequest(result.Errors);
-
-            // تحديث الـ Security Stamp لضمان تسجيل خروج الجلسات الأخرى (زيادة أمان)
-            await _userManager.UpdateSecurityStampAsync(user);
-
-            // 3. [NOTIFICATION] إرسال الإشعار وتجهيزه للـ Response
-            object? notificationResponse = null;
-            var citizen = await _context.TbCitizen.FirstOrDefaultAsync(c => c.ApplicationUserId == userId);
-
-            if (citizen != null)
-            {
-                await FillNotificationTable(citizen.Citizen_ID, "ChangeEmail");
-
-
-            }
-
-            // 4. الرد النهائي
-            return Ok(new
-            {
-                success = true,
-                message = "تم تغيير كلمة المرور بنجاح.",
-                notification = notificationResponse
-            });
+            return Ok(new { success = true, message = "Password updated successfully." });
         }
 
         /// <summary>
-        /// Uploads and sets a profile picture for the authenticated user.
+        /// Uploads and updates the user's profile picture.
         /// </summary>
-        /// <remarks>
-        /// <b>Process:</b>
-        /// 1. Validates the file existence and checks for allowed extensions (.jpg, .jpeg, .png).
-        /// 2. Saves the file with a unique GUID to 'wwwroot/Uploads/Profiles'.
-        /// 3. Deletes the previous profile photo from the server to optimize storage.
-        /// 4. Updates the 'ProfilePhotoPath' in the Identity User table.
-        /// </remarks>
-        /// <param name="file">The image file transmitted via 'multipart/form-data'.</param>
-        /// <returns>A JSON object containing the success message and the new relative web path of the photo.</returns>
-        /// <response code="200">Photo uploaded successfully and database updated.</response>
-        /// <response code="400">Bad Request: File is missing or has an invalid extension.</response>
-        /// <response code="401">Unauthorized: Missing or invalid authentication token.</response>
-        /// <response code="500">Internal Server Error: Unexpected error during file saving or database update.</response>
-        [Authorize] // تأكد أن الكنترولر أو الميثود محمية
+        /// <param name="file">The image file (JPG, PNG).</param>
+        /// <returns>The public URL of the uploaded photo.</returns>
+        /// <response code="200">Photo uploaded successfully.</response>
+        /// <response code="400">Invalid file format or upload error.</response>
         [HttpPost("UploadPhoto")]
-        public async Task<IActionResult> UploadPhoto(IFormFile file)
-        {
-            // 1. التحقق من وجود الملف ومن نوعه (أمان إضافي)
-            if (file == null || file.Length == 0)
-                return BadRequest(new { message = "الصورة غير صالحة." });
-
-            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png" };
-            var extension = Path.GetExtension(file.FileName).ToLower();
-            if (!allowedExtensions.Contains(extension))
-                return BadRequest(new { message = "امتداد الملف غير مسموح به. يرجى رفع صور فقط." });
-
-            // 2. التحقق من هوية المستخدم
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrEmpty(userId)) return Unauthorized();
-
-            var user = await _userManager.FindByIdAsync(userId);
-            if (user == null) return NotFound(new { message = "المستخدم غير موجود." });
-
-            // 3. معالجة وحفظ الملف باستخدام Path.Combine الصحيح
-            var fileName = $"{Guid.NewGuid()}{extension}";
-            // استخدم Path.Combine مع WebRootPath لضمان الوصول لمجلد wwwroot بشكل صحيح
-            var folderPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "Uploads", "Profiles");
-
-            if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
-
-            var filePath = Path.Combine(folderPath, fileName);
-
-            using (var stream = new FileStream(filePath, FileMode.Create))
-            {
-                await file.CopyToAsync(stream);
-            }
-
-            // 4. تحديث رابط الصورة في قاعدة البيانات
-            user.ProfilePhotoPath = $"/Uploads/Profiles/{fileName}";
-            var updateResult = await _userManager.UpdateAsync(user);
-            if (!updateResult.Succeeded) return BadRequest(updateResult.Errors);
-
-            // 5. [NOTIFICATION] إصلاح نوع الإشعار وإرجاع القيمة
-            NotificationResponse_Dto? notificationResponse = null;
-            var citizen = await _context.TbCitizen.FirstOrDefaultAsync(c => c.ApplicationUserId == userId);
-
-            if (citizen != null)
-            {
-                // تم تغيير "ChangeEmail" إلى "UploadPhoto" ليكون منطقياً
-                await FillNotificationTable(citizen.Citizen_ID, "UploadPhoto");
-
-                // تجهيز الرد للإشعار (اختياري حسب تصميم الـ DTO عندك)
-                notificationResponse = new NotificationResponse_Dto
-                {
-                    Title = "الملف الشخصي",
-                    Message = "تم تحديث صورتك الشخصية بنجاح.",
-                    CreatedAt = DateTime.UtcNow
-                };
-            }
-
-            // 6. الرد النهائي مع إضافة Scheme/Host للرابط ليفتح الموبايل الصورة مباشرة
-            var fullPath = $"{Request.Scheme}://{Request.Host}{user.ProfilePhotoPath}";
-
-            return Ok(new
-            {
-                success = true,
-                photoPath = fullPath,
-                message = "تم رفع الصورة وتحديث الملف الشخصي.",
-                notification = notificationResponse
-            });
-        }
-        /// <summary>
-        /// Retrieves core profile information for the currently logged-in user.
-        /// </summary>
-        /// <remarks>
-        /// This endpoint performs a 'JOIN' (Include) between the Identity Users table and the Citizen profile table 
-        /// to fetch data from both domains in a single database round-trip.
-        /// </remarks>
-        /// <returns>
-        /// A profile object containing:
-        /// - fullName: From the Citizen table.
-        /// - email: From the Identity User table.
-        /// - photo: Path to the image; returns a default avatar path if null.
-        /// </returns>
-        /// <response code="200">Returns the user profile successfully.</response>
-        /// <response code="401">Unauthorized: Token validation failed.</response>
-        /// <response code="404">Not Found: User exists but Citizen profile record is missing.</response>
-
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [HttpGet("GetProfile")]
-        public async Task<IActionResult> GetProfile()
+        public async Task<IActionResult> UploadPhoto(IFormFile file)
         {
-            // 1. استخراج الـ ID الخاص بالمستخدم من التوكن (الـ Claim)
-            var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (file == null || file.Length == 0)
+                return BadRequest(new { message = "Invalid image file." });
 
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(new { message = "فشلت عملية التحقق من الهوية." });
+            var photoPath = await _profileManager.UploadPhotoAsync(GetUserId(), file, _env.WebRootPath);
 
-            // 2. جلب المستخدم من قاعدة البيانات مع جلب ملف المواطن المرتبط به (Include)
-            var user = await _userManager.Users
-        .Include(u => u.CitizenProfile) // الربط بين AspNetUsers و TbCitizen
-                .FirstOrDefaultAsync(u => u.Id == userId);
+            if (photoPath == null)
+                return BadRequest(new { message = "Photo upload failed." });
 
-            if (user == null)
-                return NotFound(new { message = "المستخدم غير موجود." });
-
-            // 3. التحقق من وجود ملف مواطن مرتبط
-            if (user.CitizenProfile == null)
-                return NotFound(new { message = "لم يتم العثور على بيانات بروفايل لهذا الحساب." });
-
-            // 4. إرجاع البيانات المطلوبة فقط (DTO-like response)
-            return Ok(new
-            {
-                fullName = user.CitizenProfile.Citizen_Name,
-                email = user.Email,
-                photo = user.ProfilePhotoPath ?? "/Uploads/Profiles/default-avatar.png" // صورة افتراضية لو لم يرفع صورة
-            });
+            var fullPath = $"{Request.Scheme}://{Request.Host}{photoPath}";
+            return Ok(new { success = true, photoPath = fullPath, message = "Profile picture updated." });
         }
 
         /// <summary>
-        /// Retrieves the current user's dashboard statistics and profile summary.
+        /// Retrieves core profile information for the authenticated user.
         /// </summary>
-        /// <remarks>
-        /// This endpoint performs a deep inclusion across four entities:
-        /// 1. ApplicationUser: To get the profile photo.
-        /// 2. CitizenProfile: To get the full name.
-        /// 3. LstReport: To get the total count of reports.
-        /// 4. LstHandle: To determine the status of each report based on authority processing.
-        /// 
-        /// <b>Logic:</b> A report is counted in a status category if <i>any</i> authority handling that report has assigned it that specific status.
-        /// </remarks>
-        /// <returns>
-        /// An object containing:
-        /// - fullName: The Citizen's registered name.
-        /// - photo: The URL path to the profile picture.
-        /// - totalReports: Aggregate count of all submitted reports.
-        /// - pendingCount: Count of reports currently in 'Pending' status.
-        /// - inProgressCount: Count of reports currently being handled.
-        /// - solvedCount: Count of successfully resolved reports.
-        /// </returns>
-        /// <response code="200">Statistics retrieved successfully.</response>
-        /// <response code="401">Unauthorized: Token is missing or invalid.</response>
-        /// <response code="404">Not Found: User or associated Citizen profile does not exist.</response>
+        /// <returns>The user's full name, email, and photo URL.</returns>
+        /// <response code="200">Returns the user profile data.</response>
+        /// <response code="404">Profile not found.</response>
+        [HttpGet("GetProfile")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetProfile()
+        {
+            var profile = await _profileManager.GetProfileAsync(GetUserId(), GetBaseUrl());
+
+            if (profile == null)
+                return NotFound(new { message = "Profile not found." });
+
+            return Ok(profile);
+        }
+
+        /// <summary>
+        /// Gets statistics regarding the user's incident reports (Total, Pending, In-Progress, Resolved).
+        /// </summary>
+        /// <returns>Summary statistics for user activity.</returns>
+        /// <response code="200">Returns user report statistics.</response>
+        /// <response code="401">Unauthorized access.</response>
+        [HttpGet("GetUserStatus")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [HttpGet("GetUserStatus")]
         public async Task<IActionResult> GetUserStatus()
         {
-            // 1. استخراج معرف المستخدم من التوكن (JWT Claim)
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(new { message = "المستخدم غير مصرح له" });
+            var status = await _profileManager.GetUserStatusAsync(GetUserId(), GetBaseUrl());
 
-            // 2. جلب بيانات المستخدم مع بروفايل المواطن وتقاريره وحالاتها
-            // نستخدم Include و ThenInclude لضمان تحميل البيانات من جداول الربط (Eager Loading)
-            var user = await _userManager.Users
-                .Include(u => u.CitizenProfile)
-                    .ThenInclude(c => c.LstReport)
-                        .ThenInclude(r => r.LstHandle)
-                .FirstOrDefaultAsync(u => u.Id == userId);
+            if (status == null)
+                return NotFound(new { message = "Could not retrieve user status." });
 
-            if (user == null || user.CitizenProfile == null)
-                return NotFound(new { message = "المستخدم غير موجود أو لم يكمل ملفه الشخصي." });
-
-            var reports = user.CitizenProfile.LstReport;
-
-            // 3. تحليل الحالات (Logic): 
-            // بما أن جدول Handle جسر وبدون ID، سنعتمد على أن آخر حالة في المصفوفة هي الأحدث
-            var stats = reports.Select(r => {
-                var lastHandle = r.LstHandle.LastOrDefault();
-                return lastHandle?.Status; // سيرجع null إذا كان البلاغ Pending
-            }).ToList();
-
-            // 4. بناء كائن النتائج النهائي (The Response Object)
-            var statusCounts = new
-            {
-                fullName = user.CitizenProfile.Citizen_Name,
-                photo = user.ProfilePhotoPath ?? "/Uploads/Profiles/default-avatar.png",
-
-                // إجمالي البلاغات المقدمة من هذا المواطن
-                totalReports = reports.Count,
-
-                // حساب عدد البلاغات لكل حالة
-                pendingCount = stats.Count(s => s == null),
-                inProgressCount = stats.Count(s => s == "In Progress"),
-                resolvedCount = stats.Count(s => s == "Resolved")
-            };
-
-            return Ok(statusCounts);
+            return Ok(status);
         }
-        private async Task<Notification> SendNotificationAsync(int citizenId, string title, string message, string type)
-        {
-            var notification = new Notification
-            {
-                Citizen_ID = citizenId,
-                Title = title,
-                Message = message,
-                Type = type,
-                CreatedAt = DateTime.UtcNow // التخزين بالوقت الحالي
-            };
 
-            _context.TbNotification.Add(notification);
-            await _context.SaveChangesAsync(); // هنا الـ ID والوقت بيتحفظوا فعلياً
-
-            return notification; // السطر ده هو اللي "بيرجع" الإشعار بالوقت بتاعه بعد ما اتسيف
-        }
-        [NonAction]
-        private async Task FillNotificationTable(int citizenId, string type)
-        {
-            string title = "";
-            string message = "";
-
-            switch (type)
-            {
-                case "Login":
-                    title = "تنبيه أمان";
-                    message = "تم تسجيل دخول جديد إلى حسابك. إذا لم تكن أنت، يرجى مراجعة نشاط الحساب.";
-                    break;
-                case "CreateAccount":
-                    title = "مرحباً بك";
-                    message = "تم إنشاء حسابك بنجاح. نحن سعداء بانضمامك إلينا في نظام SIRS.";
-                    break;
-                case "ChangeEmail":
-                    title = "تحديث الحساب";
-                    message = "تم تغيير البريد الإلكتروني المرتبط بحسابك بنجاح.";
-                    break;
-                case "ChangePassword":
-                    title = "أمان الحساب";
-                    message = "تم تحديث كلمة المرور الخاصة بك بنجاح. يرجى عدم مشاركتها مع أي شخص.";
-                    break;
-                case "CreateReport":
-                    title = "تأكيد استلام بلاغ";
-                    message = "تم استلام بلاغك بنجاح وهو الآن قيد المراجعة من قبل الفريق المختص.";
-                    break;
-                case "UploadPhoto":
-                    title = "الملف الشخصي";
-                    message = "تم تحديث صورتك الشخصية بنجاح.";
-                    break;
-                default:
-                    title = "إشعار من النظام";
-                    message = "يوجد تحديث جديد بخصوص نشاط حسابك.";
-                    break;
-            }
-
-            var notification = new Notification
-            {
-                Citizen_ID = citizenId,
-                Title = title,
-                Message = message,
-                Type = type,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            _context.TbNotification.Add(notification);
-            await _context.SaveChangesAsync();
-        }
+        private string GetUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        private string GetBaseUrl() => $"{Request.Scheme}://{Request.Host}";
     }
 }

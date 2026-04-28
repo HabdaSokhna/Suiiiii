@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>SIRS - استخراج توكن الإشعارات</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-messaging.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            padding: 50px;
+            background-color: #f4f4f9;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            display: inline-block;
+            max-width: 80%;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+            button:hover {
+                background-color: #0056b3;
+            }
+
+        #token {
+            word-break: break-all;
+            color: #d63384;
+            font-family: monospace;
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>لوحة استخراج Device Token</h2>
+        <p>اضغط على الزرار ووافق على إذن الإشعارات (Allow) ليظهر لك التوكن.</p>
+        <button onclick="getToken()">استخراج التوكن الآن</button>
+        <div id="token"></div>
+    </div>
+
+    <script>
+        // 1. إعدادات المشروع (تأكد إنها مطابقة لملف الـ JSON عندك)
+        const firebaseConfig = {
+            apiKey: "AIzaSyBsDId9RZGs2PqhdzNxBLi6IfnmE4mbdMM",
+            authDomain: "sirs-e3927.firebaseapp.com",
+            projectId: "sirs-e3927",
+            messagingSenderId: "74861986359",
+            appId: "1:74861986359:web:6e6d94f01cd389cae535b2"
+        };
+
+        // 2. تهيئة فايبريز
+        firebase.initializeApp(firebaseConfig);
+        const messaging = firebase.messaging();
+
+        function getToken() {
+            const tokenElement = document.getElementById('token');
+            tokenElement.style.display = 'none';
+
+            // طلب الإذن من المتصفح
+            Notification.requestPermission().then((permission) => {
+                if (permission === 'granted') {
+                    console.log('Notification permission granted.');
+
+                    // استدعاء التوكن - تم تصحيح الـ VAPID Key وإزالة المسافات
+                    messaging.getToken({
+                        vapidKey: "BGTa7egSzK06uu18nJuFrQRuXxyCtsOSFqdeN-2XaVqhzOI_vOdyWneYPz80PUqq69rle0abesVb0LhwzPDoGDI"
+                    })
+                        .then((currentToken) => {
+                            if (currentToken) {
+                                tokenElement.innerText = currentToken;
+                                tokenElement.style.display = 'block';
+                                console.log('Token:', currentToken);
+                            } else {
+                                alert('لم يتم العثور على توكن. تأكد من إعدادات الـ VAPID.');
+                            }
+                        })
+                        .catch((err) => {
+                            console.error('Error retrieving token:', err);
+                            alert('خطأ أثناء جلب التوكن: ' + err.message);
+                        });
+                } else {
+                    alert('لازم توافق على إذن الإشعارات (Allow) عشان التوكن يظهر.');
+                }
+            });
+        }
+    </script>
+</body>
+</html>

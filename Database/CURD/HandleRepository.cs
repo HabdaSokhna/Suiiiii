@@ -46,6 +46,7 @@ namespace CURD
         Task<Handle?> GetByIdWithAuthorityAsync(int reportId, int authorityId);
         Task<Handle?> GetByIdWithAllAsync(int reportId, int authorityId);
         Task<IEnumerable<Handle>> GetByAuthorityIdWithReportsAsync(int authorityId);
+        Task<IEnumerable<Handle>> GetReportsByAuthorityIdAsync(int authorityId);
 
         // Statistics
         Task<IEnumerable<Handle>> GetRecentHandlesAsync(int count);
@@ -87,7 +88,13 @@ namespace CURD
                 .Include(h => h.Authority)
                 .ToListAsync();
         }
-
+        public async Task<IEnumerable<Handle>> GetReportsByAuthorityIdAsync(int authorityId)
+        {
+            return await _context.TbHandle
+                .Include(h => h.Report) // عشان نجيب تفاصيل البلاغ معاه
+                .Where(h => h.Authority_ID == authorityId && h.Status == "Pending")
+                .ToListAsync();
+        }
         public async Task<Handle?> GetByIdAsync(int reportId, int authorityId)
         {
             return await _context.TbHandle

@@ -111,7 +111,6 @@ namespace CURD
         public async Task<IEnumerable<Report>> GetByPredictedCategoryAsync(string predictedCategory)
         {
             return await _context.TbReport
-                .Where(r => r.Report_PredictedCategory == predictedCategory)
                 .OrderByDescending(r => r.Report_Submit)
                 .ToListAsync();
         }
@@ -129,7 +128,7 @@ namespace CURD
         // ===================================
         public async Task<Report> UpdateAsync(Report report)
         {
-            report.UpdatedAt = DateTime.Now;
+            
 
             _context.TbReport.Update(report);
             await _context.SaveChangesAsync();
@@ -142,10 +141,9 @@ namespace CURD
             var report = await GetByIdAsync(reportId);
             if (report == null) return false;
 
-            report.Report_PredictedCategory = predictedCategory;
+          
             report.Confidence_Score = confidenceScore;
-            report.AiTime = aiTime;
-            report.UpdatedAt = DateTime.Now;
+            
 
             await _context.SaveChangesAsync();
             return true;
@@ -160,7 +158,7 @@ namespace CURD
             if (report == null) return false;
 
             report.IsDeleted = true;
-            report.UpdatedAt = DateTime.Now;
+        
 
             await _context.SaveChangesAsync();
             return true;
@@ -175,7 +173,7 @@ namespace CURD
             if (report == null) return false;
 
             report.IsDeleted = false;
-            report.UpdatedAt = DateTime.Now;
+           
 
             await _context.SaveChangesAsync();
             return true;
@@ -243,7 +241,6 @@ namespace CURD
         public async Task<IEnumerable<Report>> GetPendingAiReportsAsync()
         {
             return await _context.TbReport
-                .Where(r => r.Report_PredictedCategory == null || r.AiTime == null)
                 .OrderBy(r => r.Report_Submit)
                 .ToListAsync();
         }
@@ -251,7 +248,6 @@ namespace CURD
         public async Task<IEnumerable<Report>> GetLowConfidenceReportsAsync(float threshold)
         {
             return await _context.TbReport
-                .Where(r => r.Confidence_Score < threshold && r.Report_PredictedCategory != null)
                 .OrderBy(r => r.Confidence_Score)
                 .ToListAsync();
         }

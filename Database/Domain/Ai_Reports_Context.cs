@@ -22,6 +22,7 @@ namespace Database
         public DbSet<Handle> TbHandle { get; set; }
         public DbSet<Report> TbReport { get; set; }
         public DbSet<Notification> TbNotification { get; set; }
+        public DbSet<Authority_Login> TbAuthority_Login { get; set; }
         #endregion
         public Ai_Reports_Context(DbContextOptions<Ai_Reports_Context> options)
         : base(options)
@@ -29,7 +30,7 @@ namespace Database
         }
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
-
+           
         }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -68,8 +69,7 @@ namespace Database
                 entity.HasIndex(e => e.Citizen_National_Id).IsUnique();
                 entity.Property(e => e.Citizen_National_Id).IsRequired().HasMaxLength(14).IsFixedLength();
 
-                entity.HasIndex(e => e.Citizen_Email).IsUnique();
-                entity.Property(e => e.Citizen_Email).IsRequired().HasMaxLength(150);
+               
 
                 entity.Property(e => e.Citizen_Name).IsRequired().HasMaxLength(150);
 
@@ -80,7 +80,7 @@ namespace Database
                       .OnDelete(DeleteBehavior.Cascade);
 
                 entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETDATE()");
-                entity.Property(e => e.IsDeleted).HasDefaultValue(false);
+                
             });
 
             // --- إعداد أرقام هواتف المواطنين ---
@@ -107,7 +107,6 @@ namespace Database
                 entity.Property(e => e.Report_Submit).HasDefaultValueSql("GETDATE()");
                 entity.Property(e => e.Confidence_Score).HasColumnType("decimal(5,2)");
                 entity.Property(e => e.PhotoPath).HasMaxLength(500);
-
                 entity.HasOne(r => r.Citizen)
                       .WithMany(c => c.LstReport)
                       .HasForeignKey(r => r.Citizen_ID)
@@ -133,6 +132,6 @@ namespace Database
         }
     }
 }
-           
-        
-   
+
+
+

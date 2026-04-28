@@ -20,6 +20,7 @@ namespace CURD
 
         // Read
         Task<IEnumerable<Authority>> GetAllAsync();
+        Task<IEnumerable<Authority>> GetByCategoryAsync(string category);
         Task<Authority?> GetByIdAsync(int id);
         Task<Authority?> GetByNameAsync(string authorityName);
         Task<IEnumerable<Authority>> GetByDepartmentAsync(string departmentName);
@@ -74,7 +75,12 @@ namespace CURD
             return await _context.TbAuthority
                 .FirstOrDefaultAsync(a => a.Authority_ID == id);
         }
-
+        public async Task<IEnumerable<Authority>> GetByCategoryAsync(string category)
+        {
+            return await _context.TbAuthority
+                .Where(a => a.Category == category)
+                .ToListAsync();
+        }
         public async Task<Authority?> GetByNameAsync(string authorityName)
         {
             return await _context.TbAuthority
