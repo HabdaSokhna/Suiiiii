@@ -8,11 +8,14 @@
 
 	<ItemGroup>
 		<PackageReference Include="FirebaseAdmin" Version="3.5.0" />
+		<PackageReference Include="MailKit" Version="4.16.0" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.1">
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
+		<PackageReference Include="Otp.NET" Version="1.4.1" />
+		<PackageReference Include="QRCoder" Version="1.8.0" />
 
 		<PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
 		<PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.4" />

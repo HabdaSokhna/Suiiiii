@@ -22,5 +22,6 @@ namespace Database.Domain
 
         [ForeignKey("Authority_ID")]
         public virtual Authority Authority { get; set; }
+        public string? DeviceToken { get; set; }
     }
 }

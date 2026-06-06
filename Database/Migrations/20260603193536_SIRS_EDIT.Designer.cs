@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Database.Migrations
 {
     [DbContext(typeof(Ai_Reports_Context))]
-    [Migration("20260428180731_EditTbHandleKey")]
-    partial class EditTbHandleKey
+    [Migration("20260603193536_SIRS_EDIT")]
+    partial class SIRS_EDIT
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -209,6 +209,9 @@ namespace Database.Migrations
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("bit");
 
+                    b.Property<string>("TwoFactorSecret")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("UserName")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
@@ -226,6 +229,48 @@ namespace Database.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
+            modelBuilder.Entity("Database.Domain.AuthorityNotification", b =>
+                {
+                    b.Property<int>("Notification_ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Notification_ID"));
+
+                    b.Property<int>("Authority_ID")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<int?>("Report_ID")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.HasKey("Notification_ID");
+
+                    b.HasIndex("Authority_ID");
+
+                    b.ToTable("TbAuthorityNotification");
+                });
+
             modelBuilder.Entity("Database.Domain.Authority_Login", b =>
                 {
                     b.Property<int>("Login_ID")
@@ -236,6 +281,9 @@ namespace Database.Migrations
 
                     b.Property<int>("Authority_ID")
                         .HasColumnType("int");
+
+                    b.Property<string>("DeviceToken")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Email")
                         .IsRequired()
@@ -298,29 +346,31 @@ namespace Database.Migrations
 
             modelBuilder.Entity("Database.Handle", b =>
                 {
-                    b.Property<int>("Report_ID")
-                        .HasColumnType("int");
-
-                    b.Property<int>("Authority_ID")
-                        .HasColumnType("int");
-
                     b.Property<int>("Handle_ID")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Handle_ID"));
 
+                    b.Property<int>("Authority_ID")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("LastUpdated")
                         .HasColumnType("datetime2");
+
+                    b.Property<int>("Report_ID")
+                        .HasColumnType("int");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
-                    b.HasKey("Report_ID", "Authority_ID");
+                    b.HasKey("Handle_ID");
 
                     b.HasIndex("Authority_ID");
+
+                    b.HasIndex("Report_ID");
 
                     b.ToTable("TbHandle", (string)null);
                 });
@@ -335,6 +385,9 @@ namespace Database.Migrations
 
                     b.Property<string>("AI_Category")
                         .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("AI_Scores")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Citizen_ID")
@@ -548,6 +601,17 @@ namespace Database.Migrations
                         .IsRequired();
 
                     b.Navigation("Citizen");
+                });
+
+            modelBuilder.Entity("Database.Domain.AuthorityNotification", b =>
+                {
+                    b.HasOne("Database.Authority", "Authority")
+                        .WithMany()
+                        .HasForeignKey("Authority_ID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Authority");
                 });
 
             modelBuilder.Entity("Database.Domain.Authority_Login", b =>

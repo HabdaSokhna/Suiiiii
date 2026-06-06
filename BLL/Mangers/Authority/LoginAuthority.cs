@@ -28,23 +28,29 @@ namespace BLL.Managers.Authority
 
         public async Task<AuthorityLoginResponseDto> LoginWithReportsAsync(AuthorityLoginDto model)
         {
-            // 1. التحقق من الحساب
             var authAccount = await _context.TbAuthority_Login
-                .AsNoTracking()
                 .FirstOrDefaultAsync(x => x.Email == model.Email && x.Password == model.Password);
 
-            if (authAccount == null) return null;
+            if (authAccount == null)
+                return new AuthorityLoginResponseDto { IsSuccess = false, Message = "إيميل أو باسورد غلط" };
 
-            // 2. توليد التوكن فقط
+            // ✅ حفظ DeviceToken
+            if (!string.IsNullOrEmpty(model.DeviceToken) && authAccount.DeviceToken != model.DeviceToken)
+            {
+                authAccount.DeviceToken = model.DeviceToken;
+                await _context.SaveChangesAsync();
+            }
+
             var token = _tokenService.GenerateToken(
                 authAccount.Login_ID.ToString(),
                 authAccount.Email,
                 new List<string> { "Authority" }
             );
 
-            // 3. إرجاع التوكن في الـ DTO
             return new AuthorityLoginResponseDto
             {
+                IsSuccess = true,
+                Message = "تم تسجيل الدخول بنجاح ✓",
                 Token = token
             };
         }

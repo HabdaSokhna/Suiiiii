@@ -1,3 +1,4 @@
+using BLL.BackgroundJobs;
 using BLL.Managers.Authority;
 using BLL.Managers.Notification;
 using BLL.Managers.Notifications;
@@ -19,28 +20,23 @@ using Microsoft.OpenApi;
 using System.Reflection;
 using System.Text;
 
-
 var builder = WebApplication.CreateBuilder(args);
 
 #region Connection String
-
 builder.Services.AddDbContext<Ai_Reports_Context>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 #endregion
 
 #region Identity
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
-.AddEntityFrameworkStores<Ai_Reports_Context>()
-.AddDefaultTokenProviders();
-
+    .AddEntityFrameworkStores<Ai_Reports_Context>()
+    .AddDefaultTokenProviders();
 #endregion
 
-#region Firebase Configuration 
+#region Firebase Configuration
 var pathToKey = Path.Combine(Directory.GetCurrentDirectory(), "firebase-config.json");
-
 if (FirebaseApp.DefaultInstance == null)
 {
-    // الحل الحديث بدلاً من FromFile لتجنب الـ Obsolete Warning
     using (var stream = new FileStream(pathToKey, FileMode.Open, FileAccess.Read))
     {
         FirebaseApp.Create(new AppOptions()
@@ -52,8 +48,7 @@ if (FirebaseApp.DefaultInstance == null)
 }
 #endregion
 
-#region Dependency Injection 
-//CURD
+#region Dependency Injection
 builder.Services.AddScoped<IReportRepository, ReportRepository>();
 builder.Services.AddScoped<ICitizenRepository, CitizenRepository>();
 builder.Services.AddScoped<ICitizenPhoneRepository, CitizenPhoneRepository>();
@@ -73,10 +68,19 @@ builder.Services.AddScoped<ISystemNotificationService, NotificationService>();
 builder.Services.AddScoped<IGetHistoryManager, GetHistoryManager>();
 builder.Services.AddScoped<ICreateReport, CreateReport>();
 builder.Services.AddScoped<IProfileManager, ProfileManager>();
-builder.Services.AddScoped<IGetReportById, GetReportById>();
 builder.Services.AddScoped<ILoginAuthority, LoginAuthority>();
 builder.Services.AddScoped<ICitizenNotificationManager, CitizenNotificationManager>();
 builder.Services.AddHttpClient<IGeocodingService, GeocodingService>();
+builder.Services.AddScoped<OtpService>();
+builder.Services.AddScoped<QrCodeService>();
+builder.Services.AddScoped<EmailService>();
+builder.Services.AddSingleton<OtpStore>();
+builder.Services.AddScoped<IOtp, OtpManager>();
+builder.Services.AddScoped<IForgetPassword, ForgetPassword>();
+builder.Services.AddScoped<IAuthorityNotificationService, AuthorityNotificationService>();
+builder.Services.AddScoped<IAuthorityNotificationManager, AuthorityNotificationManager>();
+builder.Services.AddHostedService<PendingReportNotificationJob>();
+builder.Services.AddHostedService<UnverifiedAccountCleanupJob>();
 #endregion
 
 #region Yolo Service
@@ -84,12 +88,10 @@ builder.Services.AddKeyedSingleton<YoloService>("FireService", (sp, key) => {
     var path = Path.Combine(sp.GetRequiredService<IWebHostEnvironment>().WebRootPath, "ml", "fire.onnx");
     return new YoloService(path, "Fire");
 });
-
 builder.Services.AddKeyedSingleton<YoloService>("AccidentService", (sp, key) => {
     var path = Path.Combine(sp.GetRequiredService<IWebHostEnvironment>().WebRootPath, "ml", "carraccident.onnx");
     return new YoloService(path, "Accident");
 });
-
 builder.Services.AddKeyedSingleton<YoloService>("PotholeService", (sp, key) => {
     var path = Path.Combine(sp.GetRequiredService<IWebHostEnvironment>().WebRootPath, "ml", "potholes.onnx");
     return new YoloService(path, "Pothole");
@@ -99,13 +101,12 @@ builder.Services.AddKeyedSingleton<YoloService>("PotholeService", (sp, key) => {
 #region JWT
 builder.Services.AddAuthentication(options =>
 {
-options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 })
 .AddJwtBearer(options =>
 {
     var jwtKey = builder.Configuration["JWT:Key"] ?? "A_Very_Secret_Default_Key_For_SIRS_Project_2026";
-
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
@@ -114,32 +115,35 @@ options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
         ValidateIssuerSigningKey = true,
         ValidIssuer = builder.Configuration["JWT:Issuer"],
         ValidAudience = builder.Configuration["JWT:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)), 
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
         ClockSkew = TimeSpan.Zero
     };
-
-
     options.Events = new JwtBearerEvents
-{
-OnAuthenticationFailed = context =>
-{
-    Console.WriteLine("JWT Auth Failed: " + context.Exception.Message);
-    return Task.CompletedTask;
-}
-};
+    {
+        OnAuthenticationFailed = context =>
+        {
+            Console.WriteLine("JWT Auth Failed: " + context.Exception.Message);
+            return Task.CompletedTask;
+        }
+    };
 });
 #endregion
-//Add Controllers and Views
+
 builder.Services.AddControllersWithViews();
-//Add API Explorer for Swagger
 builder.Services.AddEndpointsApiExplorer();
+
 #region Swagger
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("authority", new OpenApiInfo { Title = "SIRS - Authority API", Version = "v1" });
     options.SwaggerDoc("citizen", new OpenApiInfo { Title = "SIRS - Citizen API", Version = "v1" });
 
-    // إضافة دعم الـ JWT في الـ Swagger UI
+    options.DocInclusionPredicate((docName, apiDesc) =>
+    {
+        var groupName = apiDesc.GroupName;
+        return groupName == docName;
+    });
+
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -149,53 +153,61 @@ builder.Services.AddSwaggerGen(options =>
         In = ParameterLocation.Header,
         Description = "Enter 'Bearer' [space] and then your token"
     });
+
     try
     {
         var xmlFilename = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
         options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, xmlFilename));
     }
-    catch { /* لو الملف مش موجود السيرفر ميعطلش */ }
+    catch { }
 });
 #endregion
+
 #region CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
+    options.AddPolicy("DynamicCorsPolicy", policy =>
     {
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod();
     });
 });
-
 #endregion
 
 
 var app = builder.Build();
 
-//CORS
-app.UseCors("AllowAll");
+
+
+app.UseRouting();
+
+app.UseCors("DynamicCorsPolicy");
+
+
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/authority/swagger.json", "Authority System");
     c.SwaggerEndpoint("/swagger/citizen/swagger.json", "Citizen System");
-
-    // رجع المسار الافتراضي بدل string.Empty
     c.RoutePrefix = "swagger";
 });
 
 
-app.MapGet("/firebase-messaging-sw.js", async context => {
+app.UseStaticFiles();
+
+
+app.MapGet("/firebase-messaging-sw.js", async context =>
+{
     context.Response.ContentType = "application/javascript";
     var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "firebase-messaging-sw.js");
     await context.Response.SendFileAsync(filePath);
 });
-app.UseRouting();
 
-// Save static files 
-app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
 
 app.MapControllers();
 

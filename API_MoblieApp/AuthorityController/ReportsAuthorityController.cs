@@ -19,17 +19,20 @@ namespace SIRS_API.AuthorityController
         private readonly INotificationService _notificationService;
         private readonly IGeocodingService _geocoding;
         private readonly ICitizenNotificationManager _notificationManager;
+        private readonly IAuthorityNotificationService _authorityNotif;
 
         public ReportsAuthorityController(
             Ai_Reports_Context context,
             INotificationService notificationService,
             IGeocodingService geocoding,
-            ICitizenNotificationManager notificationManager)
+            ICitizenNotificationManager notificationManager,
+            IAuthorityNotificationService authorityNotif)
         {
             _context = context;
             _notificationService = notificationService;
             _geocoding = geocoding;
             _notificationManager = notificationManager;
+            _authorityNotif = authorityNotif;
         }
 
         [HttpGet("GetAllReports")]
@@ -44,32 +47,51 @@ namespace SIRS_API.AuthorityController
 
             if (authority == null) return Unauthorized();
 
+            var now = DateTime.UtcNow;
+            var startOfMonth = new DateTime(now.Year, now.Month, 1);
+            var endOfMonth = startOfMonth.AddMonths(1);
+
+            // ✅ كل الريبورتات بدون فلترة شهر
             var reports = await _context.TbReport
                 .AsNoTracking()
-                .Where(r => !r.IsDeleted && r.Report_Category == authority.Authority.Category)
+                .Where(r => !r.IsDeleted &&
+                            r.Report_Category != null &&
+                            r.Report_Category.Contains(authority.Authority.Category))
                 .OrderByDescending(r => r.Report_Submit)
                 .Select(r => new
                 {
                     r.Report_ID,
+                    r.Report_Submit,
                     CitizenName = r.Citizen != null ? r.Citizen.Citizen_Name : "Unknown Citizen",
                     Category = r.Report_Category ?? "Unclassified",
                     Status = r.LstHandle
                         .OrderByDescending(h => h.LastUpdated)
                         .Select(h => h.Status)
                         .FirstOrDefault() ?? "Pending",
-                    Location = r.Report_GeoLocation,   // ✅ جيب الـ raw coordinates الأول
+                    Location = r.Report_GeoLocation,
                     DateTime = r.Report_Submit.ToString("dd/MM/yyyy HH:mm"),
+                    ConfidenceRaw = r.Confidence_Score * 100,
                     Confidence = (r.Confidence_Score * 100).ToString("0.0") + "%"
                 })
                 .ToListAsync();
 
-           
-            var result = new List<object>();
+            // ✅ CountReportsInMonth من الـ list مش query جديدة
+            var countReportsInMonth = reports
+                .Count(r => r.Report_Submit >= startOfMonth && r.Report_Submit < endOfMonth);
 
+            var result = new List<object>();
             foreach (var r in reports)
             {
                 var address = await _geocoding.GetAddressAsync(r.Location);
-                await Task.Delay(1000); // Nominatim rate limit
+
+                // ✅ Priority Logic المعدل
+                string priority = r.ConfidenceRaw switch
+                {
+                    >= 85 => "High",    
+                    >= 75 and < 85 => "Medium",  
+                    >= 50 and < 75 => "Low",
+                    _ => "Low"
+                };
 
                 result.Add(new
                 {
@@ -77,15 +99,22 @@ namespace SIRS_API.AuthorityController
                     r.CitizenName,
                     r.Category,
                     r.Status,
-                    Location = address,          
-                    RawLocation = r.Location,    
+                    Location = address,
+                    RawLocation = r.Location,
                     r.DateTime,
-                    r.Confidence
+                    r.Confidence,
+                    Priority = priority
                 });
             }
 
-            return Ok(result);
+            return Ok(new
+            {
+                CountReportsInMonth = countReportsInMonth,  // ✅ عدد شهر الحالي
+                TotalReports = reports.Count,               // ✅ إجمالي كل الريبورتات
+                Reports = result
+            });
         }
+
         [HttpGet("GetReportDetails/{id}")]
         [Authorize(Roles = "Authority")]
         public async Task<IActionResult> GetReportDetails(int id)
@@ -99,7 +128,6 @@ namespace SIRS_API.AuthorityController
             if (report == null)
                 return NotFound(new { message = "البلاغ غير موجود أو تم حذفه." });
 
-            // فصل العنوان عن الوصف
             string fullDescription = report.Report_Description ?? "";
             string title = "بدون عنوان";
             string descriptionBody = fullDescription;
@@ -117,10 +145,24 @@ namespace SIRS_API.AuthorityController
                 }
             }
 
-            string status = report.Solved != null ? "Solved" :
-                            report.LstHandle.Any() ? "In Progress" : "Pending";
+            string status = report.LstHandle.Any()
+                ? report.LstHandle
+                    .OrderByDescending(h => h.Handle_ID)
+                    .Select(h => h.Status)
+                    .FirstOrDefault() ?? "Pending"
+                : "Pending";
 
             var address = await _geocoding.GetAddressAsync(report.Report_GeoLocation);
+
+            // ✅ Priority Logic
+            var confidenceRaw = report.Confidence_Score * 100;
+            string priority = confidenceRaw switch
+            {
+                >= 50 and < 70 => "Low",
+                >= 75 and < 90 => "Medium",
+                >= 90 => "High",
+                _ => "Low"
+            };
 
             return Ok(new
             {
@@ -133,24 +175,14 @@ namespace SIRS_API.AuthorityController
                 Location = address,
                 Time = report.CreatedAt.ToString("MMMM dd, yyyy, HH:mm"),
                 Photo = report.PhotoPath,
+                Priority = priority,   // ✅
                 AI_Analysis = new
                 {
                     Predicted = report.AI_Category,
                     Score = $"{(report.Confidence_Score * 100f):0.#}%"
                 },
-                History = report.LstHandle
-                    .OrderByDescending(h => h.LastUpdated)
-                    .Select(h => new
-                    {
-                        Status = h.Status == "Progress" ? "In Progress" :
-                                 h.Status == "Resolved" ? "Solved" : h.Status,
-                        UpdatedBy = h.Authority?.Authority_Name ?? "جهة غير محددة",
-                        Time = h.LastUpdated.ToString("yyyy-MM-dd HH:mm")
-                    })
             });
         }
-
-   
         [HttpGet("GetReportActivity")]
         [Authorize(Roles = "Authority")]
         public async Task<IActionResult> GetReportActivity(int reportId)
@@ -166,7 +198,6 @@ namespace SIRS_API.AuthorityController
             string citizenName = reportData.Citizen?.Citizen_Name ?? "مواطن غير مسجل";
             var timeline = new List<object>();
 
-            // Pending — دايماً موجود
             timeline.Add(new
             {
                 StatusName = "Pending",
@@ -175,7 +206,6 @@ namespace SIRS_API.AuthorityController
                 Message = GetActivityMessage("Pending")
             });
 
-            // In Progress — لو فيه Handle
             var lastHandle = reportData.LstHandle
                 .OrderByDescending(h => h.LastUpdated)
                 .FirstOrDefault();
@@ -191,7 +221,6 @@ namespace SIRS_API.AuthorityController
                 });
             }
 
-            // Resolved — لو الـ Solved متسجل
             if (reportData.Solved.HasValue)
             {
                 timeline.Add(new
@@ -213,7 +242,8 @@ namespace SIRS_API.AuthorityController
                 Timeline = timeline.AsEnumerable().Reverse()
             });
         }
-        [HttpPost("UpdateStatus")]
+
+        [HttpPut("UpdateStatus")]
         [Authorize(Roles = "Authority")]
         public async Task<IActionResult> UpdateStatus([FromBody] UpdateStatusDto model)
         {
@@ -225,86 +255,78 @@ namespace SIRS_API.AuthorityController
             try
             {
                 var report = await _context.TbReport
+                    .Include(r => r.LstHandle)
                     .FirstOrDefaultAsync(r => r.Report_ID == model.ReportId && !r.IsDeleted);
 
                 if (report == null)
                     return NotFound(new { message = "البلاغ غير موجود." });
 
-                report.UpdatedStatus = model.NewStatus;
-                string statusText = GetStatusString(model.NewStatus);
+                int currentStatus = report.UpdatedStatus;
 
-                if (model.NewStatus == 3)
-                    report.Solved = DateTime.UtcNow;
+                // ✅ استبدال TimeZoneInfo بـ UtcNow لأن Linux Server مش بيعرف "Egypt Standard Time"
+                var egyptTime = DateTime.UtcNow.AddHours(2);
 
-                _context.TbHandle.Add(new Handle
+                if (model.NewStatus < currentStatus)
                 {
-                    Report_ID = model.ReportId,
-                    Authority_ID = currentAuthorityId,
-                    Status = statusText,
-                    LastUpdated = DateTime.UtcNow.AddHours(2)
-                });
+                    if (currentStatus == 3) report.Solved = null;
+                    if (model.NewStatus == 1)
+                        _context.TbHandle.RemoveRange(report.LstHandle);
+                }
+                else
+                {
+                    string statusText = GetStatusString(model.NewStatus);
 
-                await _context.SaveChangesAsync();
+                    _context.TbHandle.Add(new Handle
+                    {
+                        Report_ID = model.ReportId,
+                        Authority_ID = currentAuthorityId,
+                        Status = statusText,
+                        LastUpdated = egyptTime
+                    });
+
+                    if (model.NewStatus == 3) report.Solved = egyptTime;
+                }
+
+                report.UpdatedStatus = model.NewStatus;
+
+                int affected = await _context.SaveChangesAsync();
+
+                // ✅ تأكد إن الحفظ نجح قبل ما تكمل
+                if (affected == 0)
+                {
+                    await transaction.RollbackAsync();
+                    return StatusCode(500, new { message = "لم يتم حفظ أي تغييرات في قاعدة البيانات." });
+                }
+
                 await transaction.CommitAsync();
 
-                // إرسال الإشعار خارج الـ Transaction
+                // ✅ await بدل fire-and-forget + try-catch منفصل لكل إشعار
                 try
                 {
-                    await _notificationManager.FillAndSendAsync(report.Citizen_ID, "ReportUpdate", statusText);
+                    await _notificationManager.FillAndSendAsync(
+                        report.Citizen_ID, "ReportUpdate", GetStatusString(model.NewStatus));
                 }
-                catch (Exception ex)
+                catch (Exception notifEx)
                 {
-                    Console.WriteLine($"⚠️ فشل إرسال الإشعار: {ex.Message}");
+                    // الإشعار فشل لكن العملية الأساسية نجحت - سجل الخطأ فقط
+                    Console.WriteLine($"[Notification Error - Citizen] {notifEx.Message}");
                 }
 
-                return Ok(new
+                try
                 {
-                    success = true,
-                    message = $"تم تحديث البلاغ رقم {model.ReportId} إلى حالة {statusText}",
-                    currentStatus = model.NewStatus
-                });
+                    await _authorityNotif.SendAsync(currentAuthorityId, "UpdateReport", model.ReportId);
+                }
+                catch (Exception notifEx)
+                {
+                    Console.WriteLine($"[Notification Error - Authority] {notifEx.Message}");
+                }
+
+                return Ok(new { success = true, message = "تم تسجيل التحديث الجديد بنجاح" });
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return StatusCode(500, new { message = "حدث خطأ داخلي أثناء التحديث.", details = ex.Message });
-            }
-        }
-        [NonAction]
-        private async Task SendStatusNotification(int citizenId, string status, int reportId)
-        {
-            try
-            {
-                string title = "تحديث بخصوص بلاغك";
-                string message = status switch
-                {
-                    "In Progress" => $"تم استلام بلاغك رقم {reportId} وجاري العمل عليه الآن.",
-                    "Resolved" => $"تم حل بلاغك رقم {reportId} بنجاح. شكراً لتعاونك!",
-                    "Rejected" => $"نعتذر منك، تم رفض البلاغ رقم {reportId}.",
-                    _ => $"تغيرت حالة بلاغك رقم {reportId} إلى {status}"
-                };
-
-                _context.TbNotification.Add(new Notification
-                {
-                    Citizen_ID = citizenId,
-                    Title = title,
-                    Message = message,
-                    Type = "ReportUpdate",
-                    CreatedAt = DateTime.UtcNow
-                });
-                await _context.SaveChangesAsync();
-
-                var citizen = await _context.TbCitizen
-                    .Where(c => c.Citizen_ID == citizenId)
-                    .Select(c => new { c.DeviceToken })
-                    .FirstOrDefaultAsync();
-
-                if (citizen != null && !string.IsNullOrEmpty(citizen.DeviceToken))
-                    await _notificationService.SendNotificationAsync(citizen.DeviceToken, title, message);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Firebase Notification Failed: {ex.Message}");
+                return StatusCode(500, new { message = ex.InnerException?.Message ?? ex.Message });
             }
         }
 
@@ -318,10 +340,10 @@ namespace SIRS_API.AuthorityController
 
         private static string GetActivityMessage(string status) => status switch
         {
-            "Pending" => "تم استلام البلاغ وهو في انتظار المراجعة.",
-            "In Progress" => "البلاغ قيد المعالجة الآن بواسطة الجهة المختصة.",
-            "Resolved" => "تم حل البلاغ وإغلاقه بنجاح.",
-            _ => "تم تحديث حالة البلاغ."
+            "Pending" => "The report has been received and is pending review.",
+            "In Progress" => "The report is currently being processed by the relevant authority.",
+            "Resolved" => "The report has been resolved and closed successfully.",
+            _ => "The report status has been updated."
         };
     }
 }

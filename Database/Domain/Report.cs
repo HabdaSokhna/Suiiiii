@@ -28,10 +28,10 @@ namespace Database
         public float Confidence_Score { get; set; }
 
         public string AI_Category { get; set; }
-
-        public DateTime CreatedAt { get; set; } = DateTime.Now;
+        public string? AI_Scores { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.Now;  //Time Pending
         public int UpdatedStatus { get; set; } = 1;
-        public DateTime? Solved  { get; set; }
+        public DateTime? Solved  { get; set; }  //Time Solved
         public bool IsDeleted { get; set; }
 
         //RelationShip

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Database.Migrations
 {
     /// <inheritdoc />
-    public partial class EditTbHandleKey : Migration
+    public partial class SIRS_EDIT : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -34,6 +34,8 @@ namespace Database.Migrations
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
                     IsDeleted = table.Column<bool>(type: "bit", nullable: false),
                     DeviceToken = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    TwoFactorSecret = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    TwoFactorEnabled = table.Column<bool>(type: "bit", nullable: false),
                     UserName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
                     NormalizedUserName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
                     Email = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
@@ -44,7 +46,6 @@ namespace Database.Migrations
                     ConcurrencyStamp = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     PhoneNumber = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     PhoneNumberConfirmed = table.Column<bool>(type: "bit", nullable: false),
-                    TwoFactorEnabled = table.Column<bool>(type: "bit", nullable: false),
                     LockoutEnd = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
                     LockoutEnabled = table.Column<bool>(type: "bit", nullable: false),
                     AccessFailedCount = table.Column<int>(type: "int", nullable: false)
@@ -226,13 +227,39 @@ namespace Database.Migrations
                         .Annotation("SqlServer:Identity", "1, 1"),
                     Email = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     Password = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Authority_ID = table.Column<int>(type: "int", nullable: false)
+                    Authority_ID = table.Column<int>(type: "int", nullable: false),
+                    DeviceToken = table.Column<string>(type: "nvarchar(max)", nullable: true)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_TbAuthority_Login", x => x.Login_ID);
                     table.ForeignKey(
                         name: "FK_TbAuthority_Login_TbAuthority_Authority_ID",
+                        column: x => x.Authority_ID,
+                        principalTable: "TbAuthority",
+                        principalColumn: "Authority_ID",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TbAuthorityNotification",
+                columns: table => new
+                {
+                    Notification_ID = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    Authority_ID = table.Column<int>(type: "int", nullable: false),
+                    Title = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    Message = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: false),
+                    Type = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
+                    Report_ID = table.Column<int>(type: "int", nullable: true),
+                    IsRead = table.Column<bool>(type: "bit", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TbAuthorityNotification", x => x.Notification_ID);
+                    table.ForeignKey(
+                        name: "FK_TbAuthorityNotification_TbAuthority_Authority_ID",
                         column: x => x.Authority_ID,
                         principalTable: "TbAuthority",
                         principalColumn: "Authority_ID",
@@ -272,6 +299,7 @@ namespace Database.Migrations
                     PhotoPath = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: true),
                     Confidence_Score = table.Column<decimal>(type: "decimal(5,2)", nullable: false),
                     AI_Category = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    AI_Scores = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
                     UpdatedStatus = table.Column<int>(type: "int", nullable: false),
                     Solved = table.Column<DateTime>(type: "datetime2", nullable: true),
@@ -293,16 +321,16 @@ namespace Database.Migrations
                 name: "TbHandle",
                 columns: table => new
                 {
-                    Report_ID = table.Column<int>(type: "int", nullable: false),
-                    Authority_ID = table.Column<int>(type: "int", nullable: false),
                     Handle_ID = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
+                    Report_ID = table.Column<int>(type: "int", nullable: false),
+                    Authority_ID = table.Column<int>(type: "int", nullable: false),
                     Status = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
                     LastUpdated = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_TbHandle", x => new { x.Report_ID, x.Authority_ID });
+                    table.PrimaryKey("PK_TbHandle", x => x.Handle_ID);
                     table.ForeignKey(
                         name: "FK_TbHandle_TbAuthority_Authority_ID",
                         column: x => x.Authority_ID,
@@ -404,6 +432,11 @@ namespace Database.Migrations
                 column: "Authority_ID");
 
             migrationBuilder.CreateIndex(
+                name: "IX_TbAuthorityNotification_Authority_ID",
+                table: "TbAuthorityNotification",
+                column: "Authority_ID");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_TbCitizen_ApplicationUserId",
                 table: "TbCitizen",
                 column: "ApplicationUserId",
@@ -430,6 +463,11 @@ namespace Database.Migrations
                 name: "IX_TbHandle_Authority_ID",
                 table: "TbHandle",
                 column: "Authority_ID");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TbHandle_Report_ID",
+                table: "TbHandle",
+                column: "Report_ID");
 
             migrationBuilder.CreateIndex(
                 name: "IX_TbNotification_Citizen_ID",
@@ -470,6 +508,9 @@ namespace Database.Migrations
 
             migrationBuilder.DropTable(
                 name: "TbAuthority_Login");
+
+            migrationBuilder.DropTable(
+                name: "TbAuthorityNotification");
 
             migrationBuilder.DropTable(
                 name: "TbCitizen_Phone");

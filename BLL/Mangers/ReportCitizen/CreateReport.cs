@@ -30,6 +30,7 @@ namespace BLL.Managers.ReportCitizen
         private readonly IWebHostEnvironment _environment;
         private readonly IAuthorityRepository _authorityRepo;
         private readonly IHandleRepository _handleRepo;
+        private readonly IAuthorityNotificationService _authorityNotif;
 
         private readonly YoloService _fireService;
         private readonly YoloService _accidentService;
@@ -44,7 +45,8 @@ namespace BLL.Managers.ReportCitizen
             ICitizenNotificationManager notificationManager,
             IWebHostEnvironment environment,
             IAuthorityRepository authorityRepo,
-            IHandleRepository handleRepo)
+            IHandleRepository handleRepo,
+            IAuthorityNotificationService authorityNotif)
         {
             _reportRepo = reportRepo;
             _citizenRepo = citizenRepo;
@@ -55,6 +57,7 @@ namespace BLL.Managers.ReportCitizen
             _environment = environment;
             _authorityRepo = authorityRepo;
             _handleRepo = handleRepo;
+            _authorityNotif = authorityNotif;
         }
 
         public async Task<ReportResponseDto> ExecuteAsync(ReportCreate_Dto model, string userEmail)
@@ -66,7 +69,9 @@ namespace BLL.Managers.ReportCitizen
 
             // 2. تحليل الصورة بالـ AI
             string? photoPath = null;
-            var aiResult = new PredictionResult_Dto { Tag = "General", Confidence = 0 };
+            string finalTag = "General";
+            float topConfidence = 0;
+            string aiScores = "";
 
             if (model.Photo != null && model.Photo.Length > 0)
             {
@@ -81,53 +86,67 @@ namespace BLL.Managers.ReportCitizen
 
                     var results = await Task.WhenAll(fireTask, accidentTask, potholeTask);
 
-                    aiResult = results
-                        .Where(r => r.Tag != "None")
+                    // ✅ كل النتايج فوق 50%
+                    var validResults = results
+                        .Where(r => r.Tag != "None" && r.Confidence >= 0.5)
                         .OrderByDescending(r => r.Confidence)
-                        .FirstOrDefault()
-                        ?? new PredictionResult_Dto { Tag = "General", Confidence = 0 };
+                        .ToList();
+
+                    if (validResults.Any())
+                    {
+                        finalTag = string.Join(",", validResults.Select(r => r.Tag));
+                        topConfidence = validResults.First().Confidence;
+
+                        // ✅ "Fire:0.85,Accident:0.72"
+                        aiScores = string.Join(",", validResults.Select(r => $"{r.Tag}:{r.Confidence:0.00}"));
+                    }
                 }
 
                 photoPath = await FileHelper.SaveFileAsync(model.Photo, _environment.WebRootPath, "reports");
             }
 
-            
-            var now = DateTime.UtcNow.AddHours(2);
+            var now = DateTime.UtcNow.AddHours(3);
 
+            // 3. إنشاء الـ Report
             var report = new Report
             {
                 Report_Description = $"Title: {model.Title}\nDescription: {model.Description}",
                 Report_GeoLocation = model.Location,
-                Report_Category = aiResult.Tag,   
-                AI_Category = aiResult.Tag,
-                Report_Submit = now,             
+                Report_Category = finalTag,
+                AI_Category = finalTag,
+                AI_Scores = aiScores,  // ✅ "Fire:0.85,Accident:0.72"
+                Report_Submit = now.AddHours(3),
                 CreatedAt = now,
                 PhotoPath = photoPath,
                 Citizen_ID = citizen.Citizen_ID,
-                Confidence_Score = (float)Math.Round(aiResult.Confidence, 4),
+                Confidence_Score = (float)Math.Round(topConfidence, 4),
             };
 
             var createdReport = await _reportRepo.CreateAsync(report);
 
-            // 4. ربط الـ Report بالجهات المختصة بناءً على الـ AI_Category
-            // ❌ مش بنعمل Handle بـ Status "Pending" 
-            // الـ Pending = مفيش Handle خالص
-            var matchedAuthorities = await _authorityRepo.GetByCategoryAsync(createdReport.AI_Category);
-            if (matchedAuthorities != null && matchedAuthorities.Any())
+            // 4. ربط الـ Report بالجهات المختصة لكل Category
+            var categories = createdReport.AI_Category.Split(',');
+            foreach (var category in categories)
             {
-                foreach (var auth in matchedAuthorities)
+                var authorities = await _authorityRepo.GetByCategoryAsync(category.Trim());
+                if (authorities == null || !authorities.Any()) continue;
+
+                foreach (var auth in authorities)
                 {
                     await _handleRepo.CreateAsync(new Handle
                     {
                         Report_ID = createdReport.Report_ID,
                         Authority_ID = auth.Authority_ID,
-                        Status = "Pending",      // ✅ أول handle = InProgress
+                        Status = "Pending",
                         LastUpdated = now
                     });
+
+                    // ✅ إرسال Notification للـ Authority
+                    await _authorityNotif.SendAsync(auth.Authority_ID, "NewReport", createdReport.Report_ID);
                 }
             }
 
-            // 5. إرسال الـ Notification
+            // 5. إرسال Notification للـ Citizen
             await _notificationManager.FillAndSendAsync(citizen.Citizen_ID, "CreateReport");
 
             // 6. الـ Response
@@ -136,8 +155,9 @@ namespace BLL.Managers.ReportCitizen
                 IsSuccess = true,
                 ReportId = createdReport.Report_ID,
                 FinalCategory = createdReport.AI_Category,
+                AiScores = createdReport.AI_Scores,  // ✅
                 FormattedConfidence = $"{createdReport.Confidence_Score * 100:0.#}%",
-                SubmittedAt = createdReport.Report_Submit  // ✅ هيظهر التاريخ صح
+                SubmittedAt = createdReport.Report_Submit
             };
         }
     }

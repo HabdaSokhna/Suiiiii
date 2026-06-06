@@ -17,6 +17,8 @@ namespace Database.Domain
         public bool IsDeleted { get; set; } = false;
        
         public virtual Citizen CitizenProfile { get; set; } = default!;
-        public string? DeviceToken { get; set; } 
+        public string? DeviceToken { get; set; }
+        public string? TwoFactorSecret { get; set; }
+        public bool TwoFactorEnabled { get; set; }
     }
 }

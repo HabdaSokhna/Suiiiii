@@ -14,7 +14,7 @@ namespace BLL.DTO.Responce
         
         public int ReportId { get; set; }
 
-        
+        public string? AiScores { get; set; }
         public string FinalCategory { get; set; } = string.Empty;
 
         

@@ -20,7 +20,7 @@ namespace Database
         [StringLength(50)]
         public string Status { get; set; } = "Pending";
 
-        public DateTime LastUpdated { get; set; } = DateTime.Now;
+        public DateTime LastUpdated { get; set; } = DateTime.Now; //Time In Progress
 
         //RelationShip
         [ForeignKey("Report_ID")]

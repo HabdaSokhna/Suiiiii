@@ -33,8 +33,6 @@ namespace BLL.Managers.User
             _context = context;
             _systemNotificationService = systemNotificationService;
         }
-
-        
         public async Task<bool> ChangeEmailAsync(string userId, ChangeEmail_Dto model)
         {
             var user = await _userManager.FindByIdAsync(userId);
@@ -127,18 +125,32 @@ namespace BLL.Managers.User
         {
             var user = await _userManager.Users
                 .Include(u => u.CitizenProfile)
-                    .ThenInclude(c => c.LstReport)
-                        .ThenInclude(r => r.LstHandle)
                 .FirstOrDefaultAsync(u => u.Id == userId);
 
             if (user?.CitizenProfile == null) return null;
 
-            var reports = user.CitizenProfile.LstReport.Where(r => !r.IsDeleted).ToList();
+            var now = DateTime.UtcNow;
+            var startOfMonth = new DateTime(now.Year, now.Month, 1);
+            var endOfMonth = startOfMonth.AddMonths(1);
 
-           
-            var reportStatuses = reports.Select(r =>
-                r.LstHandle.OrderByDescending(h => h.LastUpdated).Select(h => h.Status).FirstOrDefault() ?? "Pending"
-            ).ToList();
+            // ✅ كل الريبورتات بدون أي فلترة شهر
+            var allReports = await _context.TbReport
+                .AsNoTracking()
+                .Where(r => !r.IsDeleted
+                         && r.Citizen_ID == user.CitizenProfile.Citizen_ID)
+                .Select(r => new
+                {
+                    CreatedAt = r.CreatedAt,
+                    Status = r.LstHandle
+                        .OrderByDescending(h => h.Handle_ID)
+                        .Select(h => h.Status)
+                        .FirstOrDefault() ?? "Pending"
+                })
+                .ToListAsync();
+
+            // ✅ CountReportsInMonth بيتحسب من الـ list مش query جديدة
+            var countReportsInMonth = allReports
+                .Count(r => r.CreatedAt >= startOfMonth && r.CreatedAt < endOfMonth);
 
             return new UserStatus_Dto
             {
@@ -146,14 +158,13 @@ namespace BLL.Managers.User
                 PhotoUrl = string.IsNullOrEmpty(user.ProfilePhotoPath)
                     ? $"{baseUrl}/Uploads/Profiles/default-avatar.png"
                     : $"{baseUrl}{user.ProfilePhotoPath}",
-                TotalReports = reports.Count,
-                PendingCount = reportStatuses.Count(s => s == "Pending"),
-                InProgressCount = reportStatuses.Count(s => s == "In Progress"),
-                ResolvedCount = reportStatuses.Count(s => s == "Resolved")
+                TotalReports = allReports.Count,             // ✅ كل الريبورتات
+                CountReportsInMonth = countReportsInMonth,   // ✅ عدد شهر الحالي بس
+                PendingCount = allReports.Count(r => r.Status == "Pending"),
+                InProgressCount = allReports.Count(r => r.Status == "In Progress"),
+                ResolvedCount = allReports.Count(r => r.Status == "Resolved")
             };
         }
-
-        // ميثود مساعدة لربط المستخدم بالإشعارات
         private async Task NotifyCitizen(string userId, string type)
         {
             var citizenId = await _context.TbCitizen
@@ -163,7 +174,7 @@ namespace BLL.Managers.User
 
             if (citizenId != 0)
             {
-                // استدعاء الخدمة الجديدة باسمها الجديد لمنع التضارب مع Firebase
+                
                 await _systemNotificationService.SendNotificationAsync(citizenId, type);
             }
         }

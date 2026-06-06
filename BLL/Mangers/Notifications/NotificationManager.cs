@@ -40,7 +40,7 @@ namespace BLL.Managers.Notification
                         Title = n.Title,
                         Message = n.Message,
                         Type = n.Type,
-                        CreatedAt = n.CreatedAt,
+                        CreatedAt = n.CreatedAt.AddHours(3),
                         IsRead = n.IsRead
                     })
                     .ToListAsync();

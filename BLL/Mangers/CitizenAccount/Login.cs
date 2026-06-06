@@ -22,84 +22,75 @@ namespace BLL.Mangers.CitizenAccount
         private readonly Ai_Reports_Context _context;
         private readonly ICitizenNotificationManager _notificationManager;
         private readonly ILogger<LoginCitizenManager> _logger;
+        private readonly EmailService _emailService;  // ✅ جديد
+        private readonly OtpStore _otpStore;          // ✅ جديد
 
         public LoginCitizenManager(
             UserManager<ApplicationUser> userManager,
             ITokenService tokenService,
             Ai_Reports_Context context,
             ICitizenNotificationManager notificationManager,
-            ILogger<LoginCitizenManager> logger)
+            ILogger<LoginCitizenManager> logger,
+            EmailService emailService,  // ✅ جديد
+            OtpStore otpStore)          // ✅ جديد
         {
             _userManager = userManager;
             _tokenService = tokenService;
             _context = context;
             _notificationManager = notificationManager;
             _logger = logger;
+            _emailService = emailService;
+            _otpStore = otpStore;
         }
 
         public async Task<AuthorizationResponceDto> ExecuteAsync(LoginDto model)
         {
-            // 1. التأكد من بيانات المستخدم (Email أو Phone)
             ApplicationUser? user = model.EmailorPhoneNumber.Contains("@")
                 ? await _userManager.FindByEmailAsync(model.EmailorPhoneNumber)
                 : await _userManager.Users.FirstOrDefaultAsync(u => u.PhoneNumber == model.EmailorPhoneNumber);
 
             if (user == null || !await _userManager.CheckPasswordAsync(user, model.Password))
-            {
                 return new AuthorizationResponceDto { IsSuccess = false, Message = "بيانات الدخول غير صحيحة." };
-            }
 
+            // ✅ دخول مباشر من غير أي check على DeviceToken
             var roles = await _userManager.GetRolesAsync(user);
-
-            // التعديل هنا: نبعت الـ Id والـ Email والـ Roles كـ نصوص (Strings)
             var token = _tokenService.GenerateToken(user.Id, user.Email ?? "", roles);
-
-            // 3. جلب بيانات المواطن المرتبطة بهذا المستخدم
             var citizen = await _context.TbCitizen.FirstOrDefaultAsync(c => c.ApplicationUserId == user.Id);
 
-            if (citizen != null)
+            // ✅ حدّث الـ DeviceToken لو موجود في الـ Request
+            if (!string.IsNullOrEmpty(model.DeviceToken))
             {
-                // التحقق من وصول DeviceToken جديد من الـ Frontend
-                if (!string.IsNullOrEmpty(model.DeviceToken))
+                bool isUpdated = false;
+
+                if (citizen != null && citizen.DeviceToken != model.DeviceToken)
                 {
-                    bool isUpdated = false;
-
-                    // تحديث في جدول المواطن (TbCitizen)
-                    if (citizen.DeviceToken != model.DeviceToken)
-                    {
-                        citizen.DeviceToken = model.DeviceToken;
-                        _context.TbCitizen.Update(citizen);
-                        isUpdated = true;
-                    }
-
-                    // تحديث في جدول المستخدمين (AspNetUsers) - السطر ده هو "الفيشة" اللي ناقصة
-                    if (user.DeviceToken != model.DeviceToken)
-                    {
-                        user.DeviceToken = model.DeviceToken;
-                        await _userManager.UpdateAsync(user); // تحديث Identity مباشرة
-                        isUpdated = true;
-                    }
-
-                    if (isUpdated)
-                    {
-                        await _context.SaveChangesAsync();
-                        _logger.LogInformation($"✅ Device token synced for User: {user.Email}");
-                    }
+                    citizen.DeviceToken = model.DeviceToken;
+                    _context.TbCitizen.Update(citizen);
+                    isUpdated = true;
                 }
 
-                // 4. إرسال إشعار تسجيل الدخول (بعد التأكد من تحديث التوكن)
+                if (user.DeviceToken != model.DeviceToken)
+                {
+                    user.DeviceToken = model.DeviceToken;
+                    await _userManager.UpdateAsync(user);
+                    isUpdated = true;
+                }
+
+                if (isUpdated)
+                    await _context.SaveChangesAsync();
+            }
+            if (citizen != null)
+            {
                 try
                 {
-                    
                     await _notificationManager.FillAndSendAsync(citizen.Citizen_ID, "Login");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError($"⚠️ Notification failed but login continued: {ex.Message}");
+                    _logger.LogError("Notification failed: {Message}", ex.Message);
                 }
             }
 
-            // 5. الرد النهائي بالـ Token والبيانات
             return new AuthorizationResponceDto
             {
                 IsSuccess = true,

@@ -1,13 +1,11 @@
 ﻿using BLL.DTO.Authority;
 using Database;
 using Microsoft.EntityFrameworkCore;
-using System.Text;
 
 namespace BLL.Mangers.Authority
 {
     public interface IAnalyticsService
     {
-        // إضافة الـ authId كباراميتر إلزامي للفلترة
         Task<IEnumerable<MapReportDto>> GetReportsMapDataAsync(int authId);
     }
 
@@ -15,6 +13,7 @@ namespace BLL.Mangers.Authority
     {
         private readonly Ai_Reports_Context _context;
         private readonly IGeocodingService _geocoding;
+
         public AnalyticsService(Ai_Reports_Context context, IGeocodingService geocoding)
         {
             _context = context;
@@ -27,21 +26,25 @@ namespace BLL.Mangers.Authority
                 .Where(h => h.Authority_ID == authId &&
                             !h.Report.IsDeleted &&
                             !string.IsNullOrEmpty(h.Report.Report_GeoLocation))
-                .Select(h => new
+                .GroupBy(h => h.Report_ID)
+                .Select(g => new
                 {
-                    h.Report.Report_ID,
-                    h.Report.Report_Category,
-                    h.Report.Report_Submit,
-                    h.Report.Report_GeoLocation,
-                    h.Status
+                    g.First().Report.Report_ID,
+                    g.First().Report.Report_Category,
+                    g.First().Report.Report_Submit,
+                    g.First().Report.Report_GeoLocation,
+                    g.First().Report.Report_Description,
+                    Status = g.OrderByDescending(h => h.Handle_ID)
+                               .Select(h => h.Status)
+                               .FirstOrDefault() ?? "Pending"
                 })
                 .ToListAsync();
 
-            // ✅ معالجة كل report وتحويل الـ Coordinates لعنوان
             var mapData = new List<MapReportDto>();
 
             foreach (var r in reports)
             {
+                // ✅ Parse Coordinates
                 var coords = r.Report_GeoLocation.Split(',');
                 double lat = 0, lng = 0;
 
@@ -53,11 +56,26 @@ namespace BLL.Mangers.Authority
                         System.Globalization.CultureInfo.InvariantCulture, out lng);
                 }
 
-                // ✅ تحويل الـ Coordinates لعنوان حقيقي
-                var address = await _geocoding.GetAddressAsync(r.Report_GeoLocation);
+                // ✅ Parse Title & Description نفس طريقة GetReportDetails
+                string fullDescription = r.Report_Description ?? "";
+                string title = "بدون عنوان";
+                string descriptionBody = fullDescription;
 
-                // ✅ Delay عشان Nominatim ميبلوكش
-                await Task.Delay(1000);
+                if (fullDescription.Contains("Title:") && fullDescription.Contains("Description:"))
+                {
+                    var parts = fullDescription
+                        .Replace("Title:", "")
+                        .Split(new[] { "Description:" }, StringSplitOptions.None);
+
+                    if (parts.Length == 2)
+                    {
+                        title = parts[0].Trim();
+                        descriptionBody = parts[1].Trim();
+                    }
+                }
+
+                // ✅ Get Address
+                var address = await _geocoding.GetAddressAsync(r.Report_GeoLocation);
 
                 mapData.Add(new MapReportDto
                 {
@@ -67,7 +85,9 @@ namespace BLL.Mangers.Authority
                     Status = r.Status,
                     Latitude = lat,
                     Longitude = lng,
-                    Location = address  
+                    Location = address,
+                    Title = title,
+                    Description = descriptionBody
                 });
             }
 

@@ -49,13 +49,13 @@ namespace BLL.Service
             using var results = _session.Run(inputs);
             var output = results.First().AsTensor<float>();
 
-            // 4. Post-process - معالجة المخرجات ورسم الصناديق
+           
             var boxes = ParseOutput(output, orgWidth, orgHeight, scale, padX, padY);
             var finalBoxes = ApplyNMS(boxes, 0.45f);
 
             if (finalBoxes.Any())
             {
-                // نأخذ أعلى نتيجة ثقة
+                
                 var best = finalBoxes.OrderByDescending(b => b.Confidence).First();
                 return new PredictionResult_Dto
                 {

@@ -23,6 +23,7 @@ namespace Database
         public DbSet<Report> TbReport { get; set; }
         public DbSet<Notification> TbNotification { get; set; }
         public DbSet<Authority_Login> TbAuthority_Login { get; set; }
+        public DbSet<AuthorityNotification> TbAuthorityNotification { get; set; }
         #endregion
         public Ai_Reports_Context(DbContextOptions<Ai_Reports_Context> options)
         : base(options)
@@ -113,21 +114,28 @@ namespace Database
                       .OnDelete(DeleteBehavior.Restrict); // حماية البلاغ من الحذف
             });
 
-            // --- إعداد جدول المعالجة (Handle) - الربط بين البلاغ والجهة ---
             modelBuilder.Entity<Handle>(entity =>
             {
                 entity.ToTable("TbHandle");
-                entity.HasKey(h => new { h.Report_ID, h.Authority_ID });
 
+                // 1. المفتاح الأساسي هو Handle_ID فقط (Identity)
+                entity.HasKey(h => h.Handle_ID);
+
+                // 2. شرط الإلزام (Required): الربط بالبلاغ
                 entity.HasOne(h => h.Report)
                       .WithMany(r => r.LstHandle)
                       .HasForeignKey(h => h.Report_ID)
+                      .IsRequired() // متطلب: لازم يدخل
                       .OnDelete(DeleteBehavior.Cascade);
 
+                // 3. شرط الإلزام (Required): الربط بالجهة
                 entity.HasOne(h => h.Authority)
                       .WithMany(a => a.LstHandle)
                       .HasForeignKey(h => h.Authority_ID)
+                      .IsRequired() // متطلب: لازم يدخل
                       .OnDelete(DeleteBehavior.Restrict);
+
+                // ملاحظة: هنا مفيش HasIndex(...).IsUnique() خالص
             });
         }
     }

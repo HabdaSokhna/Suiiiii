@@ -13,5 +13,6 @@ namespace BLL.DTO.Responce
         public string? Role { get; set; }
         public string? UserName { get; set; }
         public int CitizenId { get; set; }
+        public bool RequireOtp { get; set; }
     }
 }

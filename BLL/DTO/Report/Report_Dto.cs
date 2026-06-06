@@ -20,6 +20,9 @@
 
         public string Status { get; set; } = "Pending";
         public DateTime SubmittedAt { get; set; }
+        public double? Confidence { get; set; }   // غيّر النوع لو مختلف في الـ entity
+        public string? ReportCategory { get; set; }
+        public string? Ai_Score { get; set; }
     }
 
     /// <summary>
@@ -34,7 +37,7 @@
         public string? UserSelectedCategory { get; set; }
         public string? AiPredictedCategory { get; set; }
         public float ConfidenceScore { get; set; }
-
+        public string? AI_Score { get; set; }
         /// <summary>
         /// قائمة الجهات التي تعاملت مع البلاغ
         /// </summary>
